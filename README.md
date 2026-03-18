@@ -123,25 +123,78 @@ callbacks.on_crew_end(result)
 
 ## Real-Time Subscriptions
 
-### SSE
+axonpush supports two real-time subscription mechanisms: **SSE** (Server-Sent Events) and **WebSocket** (Socket.IO).
+
+### SSE (Server-Sent Events)
+
+SSE is the simplest way to consume events in real time — no extra dependencies required.
+
+#### Subscribe to all events on a channel
 
 ```python
-from axonpush.realtime.sse import SSESubscription
+from axonpush import AxonPush
 
-with SSESubscription(
-    client._transport, channel_id=1, event_type="agent.error"
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
+    with client.channels.subscribe_sse(channel_id=1) as sub:
+        for event in sub:
+            print(event.agent_id, event.identifier, event.payload)
+```
+
+#### Subscribe to a specific event identifier
+
+```python
+with client.channels.subscribe_event_sse(channel_id=1, event_identifier="web_search") as sub:
+    for event in sub:
+        print(event.payload)
+```
+
+#### Filter by agent, event type, or trace
+
+All SSE methods accept optional filters to narrow the event stream:
+
+```python
+with client.channels.subscribe_sse(
+    channel_id=1,
+    agent_id="researcher",
+    event_type=EventType.AGENT_ERROR,
+    trace_id="tr_run_42",
 ) as sub:
     for event in sub:
         print(f"[{event.agent_id}] {event.identifier}: {event.payload}")
 ```
 
-### WebSocket
+### WebSocket (Socket.IO)
+
+WebSocket subscriptions are callback-based and support bidirectional communication (subscribe, publish, unsubscribe).
+
+```bash
+pip install axonpush[websocket]
+```
+
+#### Sync
 
 ```python
 ws = client.connect_websocket()
 ws.on_event(lambda e: print(e.agent_id, e.payload))
 ws.subscribe(channel_id=1, event_type="agent.tool_call.start")
-ws.wait()
+ws.wait()  # blocks until disconnected
+```
+
+#### Async
+
+```python
+ws = await async_client.connect_websocket()
+ws.on_event(lambda e: print(e.agent_id, e.payload))
+await ws.subscribe(channel_id=1, event_type="agent.tool_call.start")
+await ws.wait()
+```
+
+#### Publish and unsubscribe via WebSocket
+
+```python
+ws.publish(channel_id=1, identifier="status", payload={"step": "done"}, agent_id="worker")
+ws.unsubscribe(channel_id=1)
+ws.disconnect()
 ```
 
 ## Resources
