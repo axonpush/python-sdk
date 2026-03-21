@@ -10,7 +10,7 @@ class AuthConfig:
         self,
         api_key: str,
         tenant_id: str,
-        base_url: str = "http://localhost:8080",
+        base_url: str,
     ) -> None:
         self.api_key = api_key
         self.tenant_id = tenant_id

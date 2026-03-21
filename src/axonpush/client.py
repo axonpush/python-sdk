@@ -15,7 +15,7 @@ class AxonPush:
 
     Usage::
 
-        with AxonPush(api_key="ak_...", tenant_id="1") as client:
+        with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://...") as client:
             event = client.events.publish(
                 "web_search", {"query": "AI agents"}, channel_id=1,
                 agent_id="researcher", event_type="agent.tool_call.start",
@@ -27,7 +27,7 @@ class AxonPush:
         api_key: str,
         tenant_id: str,
         *,
-        base_url: str = "https://api.axonpush.com",
+        base_url: str,
         timeout: float = 30.0,
     ) -> None:
         self._auth = AuthConfig(api_key, tenant_id, base_url)
@@ -61,7 +61,7 @@ class AsyncAxonPush:
 
     Usage::
 
-        async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
+        async with AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://...") as client:
             event = await client.events.publish(
                 "web_search", {"query": "AI agents"}, channel_id=1,
                 agent_id="researcher", event_type="agent.tool_call.start",
@@ -73,7 +73,7 @@ class AsyncAxonPush:
         api_key: str,
         tenant_id: str,
         *,
-        base_url: str = "https://api.axonpush.com",
+        base_url: str,
         timeout: float = 30.0,
     ) -> None:
         self._auth = AuthConfig(api_key, tenant_id, base_url)
