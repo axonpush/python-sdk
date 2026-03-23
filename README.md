@@ -197,6 +197,18 @@ ws.unsubscribe(channel_id=1)
 ws.disconnect()
 ```
 
+## Use Case Guides
+
+Step-by-step guides for common scenarios:
+
+- [See what your agent is doing — in real time](docs/use-cases/01-realtime-agent-events.md)
+- [Add observability in 3 lines](docs/use-cases/02-framework-integrations.md)
+- [Build a live dashboard with SSE](docs/use-cases/03-live-dashboard-sse.md)
+- [Trace a multi-step agent run](docs/use-cases/04-distributed-tracing.md)
+- [Get notified when your agent fails](docs/use-cases/05-error-webhooks.md)
+- [Agent-to-agent communication](docs/use-cases/06-agent-to-agent-websockets.md)
+- [Production error handling](docs/use-cases/07-production-error-handling.md)
+
 ## Resources
 
 The client exposes Stripe-style resource objects:
