@@ -18,7 +18,8 @@ class TracesResource:
         data = self._transport.request(
             "GET", "/traces", params={"page": page, "limit": limit}
         )
-        return [TraceListItem.model_validate(t) for t in data]
+        items = data.get("data", data) if isinstance(data, dict) else data
+        return [TraceListItem.model_validate(t) for t in items]
 
     def get_events(self, trace_id: str) -> List[Event]:
         """Get all events for a trace (GET /traces/:traceId/events)."""
@@ -41,7 +42,8 @@ class AsyncTracesResource:
         data = await self._transport.request(
             "GET", "/traces", params={"page": page, "limit": limit}
         )
-        return [TraceListItem.model_validate(t) for t in data]
+        items = data.get("data", data) if isinstance(data, dict) else data
+        return [TraceListItem.model_validate(t) for t in items]
 
     async def get_events(self, trace_id: str) -> List[Event]:
         data = await self._transport.request("GET", f"/traces/{trace_id}/events")

@@ -55,7 +55,8 @@ class EventsResource:
             f"/event/{channel_id}/list",
             params={"page": page, "limit": limit},
         )
-        return [Event.model_validate(e) for e in data]
+        items = data.get("data", data) if isinstance(data, dict) else data
+        return [Event.model_validate(e) for e in items]
 
 
 class AsyncEventsResource:
@@ -106,4 +107,5 @@ class AsyncEventsResource:
             f"/event/{channel_id}/list",
             params={"page": page, "limit": limit},
         )
-        return [Event.model_validate(e) for e in data]
+        items = data.get("data", data) if isinstance(data, dict) else data
+        return [Event.model_validate(e) for e in items]

@@ -68,7 +68,7 @@ class AxonPushCallbackHandler(BaseCallbackHandler):
         self._publish(
             "chain.start",
             EventType.AGENT_START,
-            {"chain_type": serialized.get("name", "unknown"), "inputs": _safe(inputs)},
+            {"chain_type": (serialized or {}).get("name", "unknown"), "inputs": _safe(inputs)},
             run_id=run_id,
             parent_run_id=parent_run_id,
         )
@@ -119,7 +119,7 @@ class AxonPushCallbackHandler(BaseCallbackHandler):
         self._publish(
             "llm.start",
             EventType.AGENT_START,
-            {"model": serialized.get("name", "unknown"), "prompt_count": len(prompts)},
+            {"model": (serialized or {}).get("name", "unknown"), "prompt_count": len(prompts)},
             run_id=run_id,
             parent_run_id=parent_run_id,
         )
@@ -168,7 +168,7 @@ class AxonPushCallbackHandler(BaseCallbackHandler):
         parent_run_id: Optional[UUID] = None,
         **kwargs: Any,
     ) -> None:
-        tool_name = serialized.get("name", "unknown")
+        tool_name = (serialized or {}).get("name", "unknown")
         self._publish(
             f"tool.{tool_name}.start",
             EventType.AGENT_TOOL_CALL_START,

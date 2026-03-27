@@ -1,0 +1,17 @@
+[project]
+name = "axonpush-examples"
+version = "0.0.0"
+description = "Runnable recipe examples for the AxonPush Python SDK"
+requires-python = ">=3.10"
+dependencies = [
+    "axonpush",
+]
+
+[project.optional-dependencies]
+langchain = [
+    "axonpush[langchain]",
+    "langchain-openai>=0.1.0",
+]
+
+[tool.uv.sources]
+axonpush = { path = "..", editable = true }
