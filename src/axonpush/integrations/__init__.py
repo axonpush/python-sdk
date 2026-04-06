@@ -5,3 +5,4 @@
 #   from axonpush.integrations.openai_agents import AxonPushRunHooks
 #   from axonpush.integrations.anthropic import AxonPushAnthropicTracer
 #   from axonpush.integrations.crewai import AxonPushCrewCallbacks
+#   from axonpush.integrations.deepagents import AxonPushDeepAgentHandler

@@ -6,9 +6,35 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "AxonPush" }]
+keywords = [
+    "axonpush",
+    "ai-agents",
+    "real-time",
+    "events",
+    "tracing",
+    "observability",
+    "webhooks",
+    "sse",
+    "websocket",
+    "langchain",
+    "langgraph",
+    "deepagents",
+    "openai",
+    "anthropic",
+    "crewai",
+    "multi-agent",
+    "distributed-tracing",
+    "sdk",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Typing :: Typed",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Monitoring",
     "Framework :: Pydantic :: 2",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -16,6 +42,12 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+
+[project.urls]
+Homepage = "https://github.com/axonpush/python-sdk"
+Repository = "https://github.com/axonpush/python-sdk"
+Issues = "https://github.com/axonpush/python-sdk/issues"
+Changelog = "https://github.com/axonpush/python-sdk/releases"
 
 dependencies = [
     "httpx>=0.25.0,<1.0",
@@ -30,12 +62,14 @@ langchain = ["langchain-core>=0.1.0"]
 openai-agents = ["openai-agents>=0.1.0"]
 anthropic = ["anthropic>=0.30.0"]
 crewai = ["crewai>=0.50.0"]
+deepagents = ["deepagents>=0.1.0; python_version>='3.11'"]
 all = [
     "axonpush[websocket]",
     "axonpush[langchain]",
     "axonpush[openai-agents]",
     "axonpush[anthropic]",
     "axonpush[crewai]",
+    "axonpush[deepagents]",
 ]
 dev = [
     "pytest>=8.0",
