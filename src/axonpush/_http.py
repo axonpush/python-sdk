@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from typing import Any, Dict, Generator, Iterator, Optional
 
@@ -8,6 +9,7 @@ from httpx_sse import EventSource, connect_sse, aconnect_sse
 
 from axonpush._auth import AuthConfig
 from axonpush.exceptions import (
+    APIConnectionError,
     AuthenticationError,
     AxonPushError,
     ForbiddenError,
@@ -16,6 +18,15 @@ from axonpush.exceptions import (
     ServerError,
     ValidationError,
 )
+
+logger = logging.getLogger("axonpush")
+
+_FAIL_OPEN_SENTINEL = object()
+
+
+def _is_fail_open(result: Any) -> bool:
+    """Check whether a transport result is the fail-open sentinel."""
+    return result is _FAIL_OPEN_SENTINEL
 
 _ERROR_MAP: Dict[int, type] = {
     400: ValidationError,
@@ -57,12 +68,13 @@ def _raise_for_status(response: httpx.Response) -> None:
 class SyncTransport:
     """Synchronous HTTP transport backed by httpx.Client."""
 
-    def __init__(self, auth: AuthConfig, timeout: float = 30.0) -> None:
+    def __init__(self, auth: AuthConfig, timeout: float = 30.0, *, fail_open: bool = True) -> None:
         self._auth = auth
+        self._fail_open = fail_open
         self._client = httpx.Client(
             base_url=auth.base_url,
             headers=auth.headers(),
-            timeout=timeout,
+            timeout=httpx.Timeout(timeout, connect=5.0),
         )
 
     def request(
@@ -73,7 +85,19 @@ class SyncTransport:
         json: Any = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        response = self._client.request(method, path, json=json, params=params)
+        try:
+            response = self._client.request(method, path, json=json, params=params)
+        except httpx.TransportError as exc:
+            if self._fail_open:
+                logger.warning(
+                    "AxonPush API request failed (%s %s): %s. "
+                    "The error was suppressed (fail_open=True).",
+                    method, path, exc,
+                )
+                return _FAIL_OPEN_SENTINEL
+            raise APIConnectionError(
+                f"Failed to connect to AxonPush API: {exc}",
+            ) from exc
         _raise_for_status(response)
         if not response.content:
             return None
@@ -95,12 +119,13 @@ class SyncTransport:
 class AsyncTransport:
     """Asynchronous HTTP transport backed by httpx.AsyncClient."""
 
-    def __init__(self, auth: AuthConfig, timeout: float = 30.0) -> None:
+    def __init__(self, auth: AuthConfig, timeout: float = 30.0, *, fail_open: bool = True) -> None:
         self._auth = auth
+        self._fail_open = fail_open
         self._client = httpx.AsyncClient(
             base_url=auth.base_url,
             headers=auth.headers(),
-            timeout=timeout,
+            timeout=httpx.Timeout(timeout, connect=5.0),
         )
 
     async def request(
@@ -111,7 +136,19 @@ class AsyncTransport:
         json: Any = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        response = await self._client.request(method, path, json=json, params=params)
+        try:
+            response = await self._client.request(method, path, json=json, params=params)
+        except httpx.TransportError as exc:
+            if self._fail_open:
+                logger.warning(
+                    "AxonPush API request failed (%s %s): %s. "
+                    "The error was suppressed (fail_open=True).",
+                    method, path, exc,
+                )
+                return _FAIL_OPEN_SENTINEL
+            raise APIConnectionError(
+                f"Failed to connect to AxonPush API: {exc}",
+            ) from exc
         _raise_for_status(response)
         if not response.content:
             return None

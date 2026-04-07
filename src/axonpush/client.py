@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from typing import Optional
+
 from axonpush._auth import AuthConfig
 from axonpush._http import AsyncTransport, SyncTransport
 from axonpush.realtime.websocket import AsyncWebSocketClient, WebSocketClient
@@ -8,6 +11,8 @@ from axonpush.resources.channels import AsyncChannelsResource, ChannelsResource
 from axonpush.resources.events import AsyncEventsResource, EventsResource
 from axonpush.resources.traces import AsyncTracesResource, TracesResource
 from axonpush.resources.webhooks import AsyncWebhooksResource, WebhooksResource
+
+logger = logging.getLogger("axonpush")
 
 
 class AxonPush:
@@ -29,9 +34,11 @@ class AxonPush:
         *,
         base_url: str,
         timeout: float = 30.0,
+        fail_open: bool = True,
     ) -> None:
         self._auth = AuthConfig(api_key, tenant_id, base_url)
-        self._transport = SyncTransport(self._auth, timeout)
+        self._fail_open = fail_open
+        self._transport = SyncTransport(self._auth, timeout, fail_open=fail_open)
 
         self.events = EventsResource(self._transport)
         self.channels = ChannelsResource(self._transport)
@@ -39,10 +46,20 @@ class AxonPush:
         self.webhooks = WebhooksResource(self._transport)
         self.traces = TracesResource(self._transport)
 
-    def connect_websocket(self) -> WebSocketClient:
+    def connect_websocket(self) -> Optional[WebSocketClient]:
         """Create and connect a Socket.IO WebSocket client."""
         ws = WebSocketClient(self._auth)
-        ws.connect()
+        try:
+            ws.connect()
+        except Exception as exc:
+            if self._fail_open:
+                logger.warning(
+                    "AxonPush WebSocket connection failed: %s. "
+                    "The error was suppressed (fail_open=True).",
+                    exc,
+                )
+                return None
+            raise
         return ws
 
     def close(self) -> None:
@@ -75,9 +92,11 @@ class AsyncAxonPush:
         *,
         base_url: str,
         timeout: float = 30.0,
+        fail_open: bool = True,
     ) -> None:
         self._auth = AuthConfig(api_key, tenant_id, base_url)
-        self._transport = AsyncTransport(self._auth, timeout)
+        self._fail_open = fail_open
+        self._transport = AsyncTransport(self._auth, timeout, fail_open=fail_open)
 
         self.events = AsyncEventsResource(self._transport)
         self.channels = AsyncChannelsResource(self._transport)
@@ -85,10 +104,20 @@ class AsyncAxonPush:
         self.webhooks = AsyncWebhooksResource(self._transport)
         self.traces = AsyncTracesResource(self._transport)
 
-    async def connect_websocket(self) -> AsyncWebSocketClient:
+    async def connect_websocket(self) -> Optional[AsyncWebSocketClient]:
         """Create and connect an async Socket.IO WebSocket client."""
         ws = AsyncWebSocketClient(self._auth)
-        await ws.connect()
+        try:
+            await ws.connect()
+        except Exception as exc:
+            if self._fail_open:
+                logger.warning(
+                    "AxonPush WebSocket connection failed: %s. "
+                    "The error was suppressed (fail_open=True).",
+                    exc,
+                )
+                return None
+            raise
         return ws
 
     async def close(self) -> None:

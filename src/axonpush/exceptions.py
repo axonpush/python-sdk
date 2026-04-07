@@ -35,3 +35,11 @@ class RateLimitError(AxonPushError):
 
 class ServerError(AxonPushError):
     """Raised when the server returns a 5xx error."""
+
+
+class APIConnectionError(AxonPushError):
+    """Raised when the SDK cannot connect to the AxonPush API.
+
+    Only raised when ``fail_open=False``. When ``fail_open=True`` (the default),
+    connection errors are silently suppressed with a warning log.
+    """

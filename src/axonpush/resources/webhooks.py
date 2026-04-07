@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from axonpush._http import AsyncTransport, SyncTransport
+from axonpush._http import AsyncTransport, SyncTransport, _is_fail_open
 from axonpush.models.webhooks import (
     CreateWebhookEndpointParams,
     WebhookDelivery,
@@ -24,7 +24,7 @@ class WebhooksResource:
         secret: Optional[str] = None,
         event_types: Optional[List[str]] = None,
         description: Optional[str] = None,
-    ) -> WebhookEndpoint:
+    ) -> Optional[WebhookEndpoint]:
         """Create a webhook endpoint (POST /webhooks/endpoints)."""
         body = CreateWebhookEndpointParams(
             url=url,
@@ -38,11 +38,15 @@ class WebhooksResource:
             "/webhooks/endpoints",
             json=body.model_dump(by_alias=True, exclude_none=True),
         )
+        if _is_fail_open(data):
+            return None
         return WebhookEndpoint.model_validate(data)
 
     def list_endpoints(self, channel_id: int) -> List[WebhookEndpoint]:
         """List webhook endpoints for a channel (GET /webhooks/endpoints/channel/:channelId)."""
         data = self._transport.request("GET", f"/webhooks/endpoints/channel/{channel_id}")
+        if _is_fail_open(data):
+            return []
         return [WebhookEndpoint.model_validate(e) for e in data]
 
     def delete_endpoint(self, endpoint_id: int) -> None:
@@ -52,6 +56,8 @@ class WebhooksResource:
     def get_deliveries(self, endpoint_id: int) -> List[WebhookDelivery]:
         """Get delivery logs for an endpoint (GET /webhooks/deliveries/:endpointId)."""
         data = self._transport.request("GET", f"/webhooks/deliveries/{endpoint_id}")
+        if _is_fail_open(data):
+            return []
         return [WebhookDelivery.model_validate(d) for d in data]
 
 
@@ -69,7 +75,7 @@ class AsyncWebhooksResource:
         secret: Optional[str] = None,
         event_types: Optional[List[str]] = None,
         description: Optional[str] = None,
-    ) -> WebhookEndpoint:
+    ) -> Optional[WebhookEndpoint]:
         body = CreateWebhookEndpointParams(
             url=url,
             channel_id=channel_id,
@@ -82,10 +88,14 @@ class AsyncWebhooksResource:
             "/webhooks/endpoints",
             json=body.model_dump(by_alias=True, exclude_none=True),
         )
+        if _is_fail_open(data):
+            return None
         return WebhookEndpoint.model_validate(data)
 
     async def list_endpoints(self, channel_id: int) -> List[WebhookEndpoint]:
         data = await self._transport.request("GET", f"/webhooks/endpoints/channel/{channel_id}")
+        if _is_fail_open(data):
+            return []
         return [WebhookEndpoint.model_validate(e) for e in data]
 
     async def delete_endpoint(self, endpoint_id: int) -> None:
@@ -93,4 +103,6 @@ class AsyncWebhooksResource:
 
     async def get_deliveries(self, endpoint_id: int) -> List[WebhookDelivery]:
         data = await self._transport.request("GET", f"/webhooks/deliveries/{endpoint_id}")
+        if _is_fail_open(data):
+            return []
         return [WebhookDelivery.model_validate(d) for d in data]

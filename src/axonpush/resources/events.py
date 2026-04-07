@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
 
-from axonpush._http import AsyncTransport, SyncTransport
+from axonpush._http import AsyncTransport, SyncTransport, _is_fail_open
 from axonpush._tracing import get_or_create_trace
 from axonpush.models.events import CreateEventParams, Event, EventType
 
@@ -25,7 +25,7 @@ class EventsResource:
         parent_event_id: Optional[int] = None,
         event_type: Optional[Union[EventType, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
-    ) -> Event:
+    ) -> Optional[Event]:
         """Publish an event to a channel (POST /event)."""
         if trace_id is None:
             trace_id = get_or_create_trace().trace_id
@@ -44,6 +44,8 @@ class EventsResource:
         data = self._transport.request(
             "POST", "/event", json=body.model_dump(by_alias=True, exclude_none=True)
         )
+        if _is_fail_open(data):
+            return None
         return Event.model_validate(data)
 
     def list(
@@ -55,6 +57,8 @@ class EventsResource:
             f"/event/{channel_id}/list",
             params={"page": page, "limit": limit},
         )
+        if _is_fail_open(data):
+            return []
         items = data.get("data", data) if isinstance(data, dict) else data
         return [Event.model_validate(e) for e in items]
 
@@ -77,7 +81,7 @@ class AsyncEventsResource:
         parent_event_id: Optional[int] = None,
         event_type: Optional[Union[EventType, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
-    ) -> Event:
+    ) -> Optional[Event]:
         """Publish an event to a channel (POST /event)."""
         if trace_id is None:
             trace_id = get_or_create_trace().trace_id
@@ -96,6 +100,8 @@ class AsyncEventsResource:
         data = await self._transport.request(
             "POST", "/event", json=body.model_dump(by_alias=True, exclude_none=True)
         )
+        if _is_fail_open(data):
+            return None
         return Event.model_validate(data)
 
     async def list(
@@ -107,5 +113,7 @@ class AsyncEventsResource:
             f"/event/{channel_id}/list",
             params={"page": page, "limit": limit},
         )
+        if _is_fail_open(data):
+            return []
         items = data.get("data", data) if isinstance(data, dict) else data
         return [Event.model_validate(e) for e in items]

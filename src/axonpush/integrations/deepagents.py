@@ -16,6 +16,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -32,6 +33,8 @@ except ImportError:
 
 from axonpush._tracing import get_or_create_trace
 from axonpush.models.events import EventType
+
+logger = logging.getLogger("axonpush")
 
 from typing import TYPE_CHECKING
 
@@ -241,22 +244,25 @@ class AxonPushDeepAgentHandler(BaseCallbackHandler):
         run_id: Optional[UUID] = None,
         parent_run_id: Optional[UUID] = None,
     ) -> None:
-        meta = {**self._base_metadata}
-        if run_id:
-            meta["langchain_run_id"] = str(run_id)
-        if parent_run_id:
-            meta["langchain_parent_run_id"] = str(parent_run_id)
+        try:
+            meta = {**self._base_metadata}
+            if run_id:
+                meta["langchain_run_id"] = str(run_id)
+            if parent_run_id:
+                meta["langchain_parent_run_id"] = str(parent_run_id)
 
-        self._client.events.publish(
-            identifier=identifier,
-            payload=payload,
-            channel_id=self._channel_id,
-            agent_id=self._agent_id,
-            trace_id=self._trace.trace_id,
-            span_id=self._trace.next_span_id(),
-            event_type=event_type,
-            metadata=meta,
-        )
+            self._client.events.publish(
+                identifier=identifier,
+                payload=payload,
+                channel_id=self._channel_id,
+                agent_id=self._agent_id,
+                trace_id=self._trace.trace_id,
+                span_id=self._trace.next_span_id(),
+                event_type=event_type,
+                metadata=meta,
+            )
+        except Exception:
+            logger.warning("AxonPush: failed to emit event %r, suppressing.", identifier, exc_info=True)
 
 
 # -- Tool classification helpers --

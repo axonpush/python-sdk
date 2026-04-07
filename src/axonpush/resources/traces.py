@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
-from axonpush._http import AsyncTransport, SyncTransport
+from axonpush._http import AsyncTransport, SyncTransport, _is_fail_open
 from axonpush.models.events import Event
 from axonpush.models.traces import TraceListItem, TraceSummary
 
@@ -18,17 +18,23 @@ class TracesResource:
         data = self._transport.request(
             "GET", "/traces", params={"page": page, "limit": limit}
         )
+        if _is_fail_open(data):
+            return []
         items = data.get("data", data) if isinstance(data, dict) else data
         return [TraceListItem.model_validate(t) for t in items]
 
     def get_events(self, trace_id: str) -> List[Event]:
         """Get all events for a trace (GET /traces/:traceId/events)."""
         data = self._transport.request("GET", f"/traces/{trace_id}/events")
+        if _is_fail_open(data):
+            return []
         return [Event.model_validate(e) for e in data]
 
-    def get_summary(self, trace_id: str) -> TraceSummary:
+    def get_summary(self, trace_id: str) -> Optional[TraceSummary]:
         """Get trace summary (GET /traces/:traceId/summary)."""
         data = self._transport.request("GET", f"/traces/{trace_id}/summary")
+        if _is_fail_open(data):
+            return None
         return TraceSummary.model_validate(data)
 
 
@@ -42,13 +48,19 @@ class AsyncTracesResource:
         data = await self._transport.request(
             "GET", "/traces", params={"page": page, "limit": limit}
         )
+        if _is_fail_open(data):
+            return []
         items = data.get("data", data) if isinstance(data, dict) else data
         return [TraceListItem.model_validate(t) for t in items]
 
     async def get_events(self, trace_id: str) -> List[Event]:
         data = await self._transport.request("GET", f"/traces/{trace_id}/events")
+        if _is_fail_open(data):
+            return []
         return [Event.model_validate(e) for e in data]
 
-    async def get_summary(self, trace_id: str) -> TraceSummary:
+    async def get_summary(self, trace_id: str) -> Optional[TraceSummary]:
         data = await self._transport.request("GET", f"/traces/{trace_id}/summary")
+        if _is_fail_open(data):
+            return None
         return TraceSummary.model_validate(data)

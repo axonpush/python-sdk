@@ -27,6 +27,7 @@ Usage::
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 
 try:
@@ -39,6 +40,8 @@ except ImportError:
 
 from axonpush._tracing import get_or_create_trace
 from axonpush.models.events import EventType
+
+logger = logging.getLogger("axonpush")
 
 from typing import TYPE_CHECKING
 
@@ -153,30 +156,36 @@ class AxonPushAnthropicTracer:
     def _emit_sync(
         self, identifier: str, event_type: EventType, payload: Dict[str, Any]
     ) -> None:
-        self._client.events.publish(  # type: ignore[union-attr]
-            identifier=identifier,
-            payload=payload,
-            channel_id=self._channel_id,
-            agent_id=self._agent_id,
-            trace_id=self._trace.trace_id,
-            span_id=self._trace.next_span_id(),
-            event_type=event_type,
-            metadata={"framework": "anthropic"},
-        )
+        try:
+            self._client.events.publish(  # type: ignore[union-attr]
+                identifier=identifier,
+                payload=payload,
+                channel_id=self._channel_id,
+                agent_id=self._agent_id,
+                trace_id=self._trace.trace_id,
+                span_id=self._trace.next_span_id(),
+                event_type=event_type,
+                metadata={"framework": "anthropic"},
+            )
+        except Exception:
+            logger.warning("AxonPush: failed to emit event %r, suppressing.", identifier, exc_info=True)
 
     async def _emit_async(
         self, identifier: str, event_type: EventType, payload: Dict[str, Any]
     ) -> None:
-        await self._client.events.publish(  # type: ignore[union-attr]
-            identifier=identifier,
-            payload=payload,
-            channel_id=self._channel_id,
-            agent_id=self._agent_id,
-            trace_id=self._trace.trace_id,
-            span_id=self._trace.next_span_id(),
-            event_type=event_type,
-            metadata={"framework": "anthropic"},
-        )
+        try:
+            await self._client.events.publish(  # type: ignore[union-attr]
+                identifier=identifier,
+                payload=payload,
+                channel_id=self._channel_id,
+                agent_id=self._agent_id,
+                trace_id=self._trace.trace_id,
+                span_id=self._trace.next_span_id(),
+                event_type=event_type,
+                metadata={"framework": "anthropic"},
+            )
+        except Exception:
+            logger.warning("AxonPush: failed to emit event %r, suppressing.", identifier, exc_info=True)
 
 
 def _truncate(obj: Any, max_len: int = 500) -> Any:

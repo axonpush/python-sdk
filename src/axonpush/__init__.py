@@ -4,6 +4,7 @@ from axonpush._tracing import TraceContext, get_or_create_trace
 from axonpush._version import __version__
 from axonpush.client import AsyncAxonPush, AxonPush
 from axonpush.exceptions import (
+    APIConnectionError,
     AuthenticationError,
     AxonPushError,
     ForbiddenError,
@@ -36,6 +37,7 @@ __all__ = [
     "TraceContext",
     "get_or_create_trace",
     # Exceptions
+    "APIConnectionError",
     "AuthenticationError",
     "AxonPushError",
     "ForbiddenError",

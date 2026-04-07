@@ -13,6 +13,7 @@ Usage::
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 
 try:
@@ -25,6 +26,8 @@ except ImportError:
 
 from axonpush._tracing import get_or_create_trace
 from axonpush.models.events import EventType
+
+logger = logging.getLogger("axonpush")
 
 from typing import TYPE_CHECKING
 
@@ -121,13 +124,16 @@ class AxonPushRunHooks(RunHooks[Any]):
         *,
         agent_id: Optional[str] = None,
     ) -> None:
-        await self._client.events.publish(
-            identifier=identifier,
-            payload=payload,
-            channel_id=self._channel_id,
-            agent_id=agent_id or self._default_agent_id or "openai-agent",
-            trace_id=self._trace.trace_id,
-            span_id=self._trace.next_span_id(),
-            event_type=event_type,
-            metadata={"framework": "openai-agents"},
-        )
+        try:
+            await self._client.events.publish(
+                identifier=identifier,
+                payload=payload,
+                channel_id=self._channel_id,
+                agent_id=agent_id or self._default_agent_id or "openai-agent",
+                trace_id=self._trace.trace_id,
+                span_id=self._trace.next_span_id(),
+                event_type=event_type,
+                metadata={"framework": "openai-agents"},
+            )
+        except Exception:
+            logger.warning("AxonPush: failed to emit event %r, suppressing.", identifier, exc_info=True)

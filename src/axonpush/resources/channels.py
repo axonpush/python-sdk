@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Union
 
-from axonpush._http import AsyncTransport, SyncTransport
+from axonpush._http import AsyncTransport, SyncTransport, _is_fail_open
 from axonpush.models.channels import Channel, CreateChannelParams
 from axonpush.models.events import EventType
 
@@ -13,22 +13,28 @@ class ChannelsResource:
     def __init__(self, transport: SyncTransport) -> None:
         self._transport = transport
 
-    def create(self, name: str, app_id: int) -> Channel:
+    def create(self, name: str, app_id: int) -> Optional[Channel]:
         """Create a new channel (POST /channel)."""
         body = CreateChannelParams(name=name, app_id=app_id)
         data = self._transport.request(
             "POST", "/channel", json=body.model_dump(by_alias=True, exclude_none=True)
         )
+        if _is_fail_open(data):
+            return None
         return Channel.model_validate(data)
 
-    def get(self, channel_id: int) -> Channel:
+    def get(self, channel_id: int) -> Optional[Channel]:
         """Get a channel by ID (GET /channel/:id)."""
         data = self._transport.request("GET", f"/channel/{channel_id}")
+        if _is_fail_open(data):
+            return None
         return Channel.model_validate(data)
 
-    def update(self, channel_id: int, **fields: Any) -> Channel:
+    def update(self, channel_id: int, **fields: Any) -> Optional[Channel]:
         """Update a channel (PUT /channel/:id)."""
         data = self._transport.request("PUT", f"/channel/{channel_id}", json=fields)
+        if _is_fail_open(data):
+            return None
         return Channel.model_validate(data)
 
     def delete(self, channel_id: int) -> None:
@@ -73,19 +79,25 @@ class AsyncChannelsResource:
     def __init__(self, transport: AsyncTransport) -> None:
         self._transport = transport
 
-    async def create(self, name: str, app_id: int) -> Channel:
+    async def create(self, name: str, app_id: int) -> Optional[Channel]:
         body = CreateChannelParams(name=name, app_id=app_id)
         data = await self._transport.request(
             "POST", "/channel", json=body.model_dump(by_alias=True, exclude_none=True)
         )
+        if _is_fail_open(data):
+            return None
         return Channel.model_validate(data)
 
-    async def get(self, channel_id: int) -> Channel:
+    async def get(self, channel_id: int) -> Optional[Channel]:
         data = await self._transport.request("GET", f"/channel/{channel_id}")
+        if _is_fail_open(data):
+            return None
         return Channel.model_validate(data)
 
-    async def update(self, channel_id: int, **fields: Any) -> Channel:
+    async def update(self, channel_id: int, **fields: Any) -> Optional[Channel]:
         data = await self._transport.request("PUT", f"/channel/{channel_id}", json=fields)
+        if _is_fail_open(data):
+            return None
         return Channel.model_validate(data)
 
     async def delete(self, channel_id: int) -> None:
