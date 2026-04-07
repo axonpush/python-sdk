@@ -15,7 +15,7 @@ pip install axonpush
 ```python
 from axonpush import AxonPush
 
-with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
     # Create a webhook that fires on agent errors
     endpoint = client.webhooks.create_endpoint(
         url="https://your-server.com/webhook",
@@ -99,7 +99,7 @@ The `DeliveryStatus` enum values are: `pending`, `success`, `failed`, `retrying`
 ### Async variant
 
 ```python
-async with AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
     endpoint = await client.webhooks.create_endpoint(
         url="https://your-server.com/webhook",
         channel_id=1,

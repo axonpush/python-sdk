@@ -17,7 +17,7 @@ from axonpush import AxonPush
 from axonpush.exceptions import RateLimitError, AuthenticationError, ServerError
 import time
 
-with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
     try:
         event = client.events.publish(
             "web_search", {"query": "AI agents"},
@@ -146,7 +146,7 @@ from axonpush import AsyncAxonPush
 from axonpush.exceptions import RateLimitError
 import asyncio
 
-async with AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
     try:
         event = await client.events.publish(
             "web_search", {"query": "AI agents"},

@@ -15,7 +15,7 @@ pip install axonpush
 ```python
 from axonpush import AxonPush, EventType
 
-with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
     # Publish an event when your agent calls a tool
     event = client.events.publish(
         "web_search",                              # what happened
@@ -49,7 +49,7 @@ with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xy
 ```python
 from axonpush import AsyncAxonPush, EventType
 
-async with AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
     event = await client.events.publish(
         "web_search",
         {"query": "AI agent frameworks"},

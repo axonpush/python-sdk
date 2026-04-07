@@ -20,7 +20,7 @@ class AxonPush:
 
     Usage::
 
-        with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://...") as client:
+        with AxonPush(api_key="ak_...", tenant_id="1") as client:
             event = client.events.publish(
                 "web_search", {"query": "AI agents"}, channel_id=1,
                 agent_id="researcher", event_type="agent.tool_call.start",
@@ -32,7 +32,7 @@ class AxonPush:
         api_key: str,
         tenant_id: str,
         *,
-        base_url: str,
+        base_url: str = "https://api.axonpush.xyz",
         timeout: float = 30.0,
         fail_open: bool = True,
     ) -> None:
@@ -78,7 +78,7 @@ class AsyncAxonPush:
 
     Usage::
 
-        async with AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://...") as client:
+        async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
             event = await client.events.publish(
                 "web_search", {"query": "AI agents"}, channel_id=1,
                 agent_id="researcher", event_type="agent.tool_call.start",
@@ -90,7 +90,7 @@ class AsyncAxonPush:
         api_key: str,
         tenant_id: str,
         *,
-        base_url: str,
+        base_url: str = "https://api.axonpush.xyz",
         timeout: float = 30.0,
         fail_open: bool = True,
     ) -> None:

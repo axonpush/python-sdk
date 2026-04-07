@@ -15,7 +15,7 @@ pip install axonpush
 ```python
 from axonpush import AxonPush
 
-with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
     # Open a persistent SSE connection — events arrive as they happen
     with client.channels.subscribe_sse(channel_id=1) as stream:
         for event in stream:
@@ -66,7 +66,7 @@ Run the subscriber in one process, the publisher in another:
 ```python
 from axonpush import AxonPush
 
-with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
     with client.channels.subscribe_sse(channel_id=1) as stream:
         for event in stream:
             print(f"[{event.agent_id}] {event.identifier}: {event.payload}")
@@ -76,7 +76,7 @@ with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xy
 ```python
 from axonpush import AxonPush, EventType
 
-with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
     client.events.publish(
         "web_search",
         {"query": "AI agents", "results": 12},

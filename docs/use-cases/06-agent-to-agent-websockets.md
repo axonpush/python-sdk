@@ -15,7 +15,7 @@ pip install axonpush[websocket]
 ```python
 from axonpush import AxonPush, EventType
 
-client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz")
+client = AxonPush(api_key="ak_...", tenant_id="1")
 
 # Agent B: subscribe and react
 ws = client.connect_websocket()
@@ -53,7 +53,7 @@ ws.wait()
 import threading
 from axonpush import AxonPush, EventType
 
-client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz")
+client = AxonPush(api_key="ak_...", tenant_id="1")
 
 # Agent B: the reactor
 def agent_b():
@@ -123,7 +123,7 @@ ws.disconnect()                 # close the WebSocket connection
 ```python
 from axonpush import AsyncAxonPush
 
-async with AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
     ws = await client.connect_websocket()
     ws.on_event(lambda e: print(e.identifier, e.payload))
     await ws.subscribe(channel_id=1)

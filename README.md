@@ -25,7 +25,7 @@ pip install axonpush[all]             # Everything
 ```python
 from axonpush import AxonPush, EventType
 
-with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://...") as client:
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
     # Publish an event
     event = client.events.publish(
         "web_search",
@@ -48,7 +48,7 @@ with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://...") as client
 ```python
 from axonpush import AsyncAxonPush
 
-async with AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://...") as client:
+async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
     event = await client.events.publish(
         "web_search",
         {"query": "AI agents"},
@@ -66,7 +66,7 @@ async with AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://..."
 from axonpush import AxonPush
 from axonpush.integrations.langchain import AxonPushCallbackHandler
 
-client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://...")
+client = AxonPush(api_key="ak_...", tenant_id="1")
 handler = AxonPushCallbackHandler(client, channel_id=1, agent_id="my-agent")
 
 # All chain/tool/LLM events are published automatically
@@ -79,7 +79,7 @@ chain.invoke({"input": "..."}, config={"callbacks": [handler]})
 from axonpush import AsyncAxonPush
 from axonpush.integrations.openai_agents import AxonPushRunHooks
 
-client = AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://...")
+client = AsyncAxonPush(api_key="ak_...", tenant_id="1")
 hooks = AxonPushRunHooks(client, channel_id=1)
 
 result = await Runner.run(agent, input="...", hooks=hooks)
@@ -91,7 +91,7 @@ result = await Runner.run(agent, input="...", hooks=hooks)
 from axonpush import AxonPush
 from axonpush.integrations.anthropic import AxonPushAnthropicTracer
 
-client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://...")
+client = AxonPush(api_key="ak_...", tenant_id="1")
 tracer = AxonPushAnthropicTracer(client, channel_id=1)
 
 # Wraps messages.create() — auto-emits events for tool_use, text, turns
@@ -108,7 +108,7 @@ response = tracer.create_message(
 from axonpush import AxonPush
 from axonpush.integrations.crewai import AxonPushCrewCallbacks
 
-client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://...")
+client = AxonPush(api_key="ak_...", tenant_id="1")
 callbacks = AxonPushCrewCallbacks(client, channel_id=1)
 
 callbacks.on_crew_start()
@@ -134,7 +134,7 @@ SSE is the simplest way to consume events in real time — no extra dependencies
 ```python
 from axonpush import AxonPush
 
-with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://...") as client:
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
     with client.channels.subscribe_sse(channel_id=1) as sub:
         for event in sub:
             print(event.agent_id, event.identifier, event.payload)

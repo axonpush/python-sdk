@@ -15,7 +15,7 @@ pip install axonpush
 ```python
 from axonpush import AxonPush, EventType, get_or_create_trace
 
-with AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+with AxonPush(api_key="ak_...", tenant_id="1") as client:
     # Create a trace — all events in this run share the same trace_id
     trace = get_or_create_trace()
 
@@ -111,7 +111,7 @@ This means you can call `get_or_create_trace()` once at the top of your agent ru
 ```python
 from axonpush import AsyncAxonPush, get_or_create_trace
 
-async with AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz") as client:
+async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
     trace = get_or_create_trace()
 
     await client.events.publish(
