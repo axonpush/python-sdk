@@ -43,7 +43,7 @@ class Event(BaseModel):
     parent_event_id: Optional[int] = Field(None, alias="parentEventId")
     event_type: EventType = Field(alias="eventType", default=EventType.CUSTOM)
     metadata: Optional[Dict[str, Any]] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = Field(None, alias="createdAt")
+    updated_at: Optional[datetime] = Field(None, alias="updatedAt")
 
     model_config = {"populate_by_name": True}
