@@ -8,7 +8,7 @@ Scenario-driven guides for building with AxonPush. Each takes under 2 minutes to
 pip install axonpush
 ```
 
-You need an AxonPush API key and tenant ID. Get them from the [AxonPush dashboard](https://axonpush.com).
+You need an AxonPush API key and tenant ID. Get them from the [AxonPush dashboard](https://axonpush.xyz).
 
 ## Guides
 

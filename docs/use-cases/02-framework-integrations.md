@@ -23,7 +23,7 @@ pip install axonpush[crewai]          # CrewAI
 from axonpush import AxonPush
 from axonpush.integrations.langchain import AxonPushCallbackHandler
 
-client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.com")
+client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz")
 handler = AxonPushCallbackHandler(client, channel_id=1, agent_id="my-agent")
 
 # Every chain, tool, and LLM event is published automatically
@@ -36,7 +36,7 @@ chain.invoke({"input": "research AI frameworks"}, config={"callbacks": [handler]
 from axonpush import AsyncAxonPush
 from axonpush.integrations.openai_agents import AxonPushRunHooks
 
-client = AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.com")
+client = AsyncAxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz")
 hooks = AxonPushRunHooks(client, channel_id=1)
 
 result = await Runner.run(agent, input="research AI frameworks", hooks=hooks)
@@ -48,7 +48,7 @@ result = await Runner.run(agent, input="research AI frameworks", hooks=hooks)
 from axonpush import AxonPush
 from axonpush.integrations.anthropic import AxonPushAnthropicTracer
 
-client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.com")
+client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz")
 tracer = AxonPushAnthropicTracer(client, channel_id=1)
 
 # Wraps messages.create() — auto-emits events for tool_use, text, and turns
@@ -65,7 +65,7 @@ response = tracer.create_message(
 from axonpush import AxonPush
 from axonpush.integrations.crewai import AxonPushCrewCallbacks
 
-client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.com")
+client = AxonPush(api_key="ak_...", tenant_id="1", base_url="https://api.axonpush.xyz")
 callbacks = AxonPushCrewCallbacks(client, channel_id=1)
 
 callbacks.on_crew_start()

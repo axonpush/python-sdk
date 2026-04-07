@@ -1,6 +1,6 @@
 # axonpush
 
-Python SDK for [AxonPush](https://axonpush.com) — real-time event infrastructure for AI agent systems.
+Python SDK for [AxonPush](https://axonpush.xyz) — real-time event infrastructure for AI agent systems.
 
 Publish, subscribe, trace, and deliver agent events with sub-100ms latency. Drop-in integrations for LangChain, OpenAI Agents SDK, Claude/Anthropic, and CrewAI.
 
