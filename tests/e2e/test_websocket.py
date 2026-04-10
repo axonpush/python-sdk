@@ -1,8 +1,11 @@
 import time
 
+import pytest
+
 from axonpush import EventType
 from axonpush.models.events import Event
 
+pytestmark = pytest.mark.e2e
 
 
 class TestWebSocketClient:

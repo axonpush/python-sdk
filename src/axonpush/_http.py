@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Any, Dict, Generator, Iterator, Optional
+from typing import Any, Dict, Generator, Optional
 
 import httpx
-from httpx_sse import EventSource, connect_sse, aconnect_sse
+from httpx_sse import EventSource, connect_sse
 
 from axonpush._auth import AuthConfig
 from axonpush.exceptions import (

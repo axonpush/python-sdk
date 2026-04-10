@@ -10,10 +10,14 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-from langchain_core.outputs import LLMResult
 
-from axonpush.integrations.deepagents import AxonPushDeepAgentHandler
-from axonpush.models.events import EventType
+pytest.importorskip("langchain_core")
+pytest.importorskip("deepagents")
+
+from langchain_core.outputs import LLMResult  # noqa: E402
+
+from axonpush.integrations.deepagents import AxonPushDeepAgentHandler  # noqa: E402
+from axonpush.models.events import EventType  # noqa: E402
 
 
 @pytest.fixture()

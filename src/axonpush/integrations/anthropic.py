@@ -28,7 +28,7 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 try:
     import anthropic  # noqa: F401 — verify the package is installed
@@ -42,8 +42,6 @@ from axonpush._tracing import get_or_create_trace
 from axonpush.models.events import EventType
 
 logger = logging.getLogger("axonpush")
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from axonpush.client import AsyncAxonPush, AxonPush

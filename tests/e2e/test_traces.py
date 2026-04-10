@@ -1,9 +1,13 @@
-import uuid
 import time
+import uuid
+
+import pytest
 
 from axonpush import EventType
 from axonpush.models.events import Event
 from axonpush.models.traces import TraceListItem, TraceSummary
+
+pytestmark = pytest.mark.e2e
 
 
 class TestTracesResource:

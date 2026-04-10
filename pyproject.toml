@@ -97,6 +97,7 @@ packages = ["src/axonpush"]
 [tool.ruff]
 target-version = "py310"
 line-length = 100
+extend-exclude = ["examples"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -105,3 +106,7 @@ strict = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-m 'not e2e'"
+markers = [
+    "e2e: end-to-end tests requiring a live easy-push backend (opt in with `pytest -m e2e`)",
+]

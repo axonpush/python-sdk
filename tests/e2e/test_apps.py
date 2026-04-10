@@ -1,5 +1,9 @@
+import pytest
+
 from axonpush.models.apps import App
 from tests.conftest import EXISTING_APP_ID
+
+pytestmark = pytest.mark.e2e
 
 
 class TestAppsResource:

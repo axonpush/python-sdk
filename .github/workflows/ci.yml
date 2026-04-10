@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - name: Install dependencies
+        run: uv sync --extra dev --extra all
+      - name: Ruff
+        run: uv run ruff check .
+
+  # Mypy is currently advisory — there are pre-existing strict-mode errors
+  # tracked separately. Once they're cleared we can flip continue-on-error
+  # to false and add this job to the `needs:` chain in release.yml.
+  typecheck:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - run: uv sync --extra dev --extra all
+      - run: uv run mypy src/axonpush
+
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      - name: Install Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: uv sync --extra dev --extra all --python ${{ matrix.python-version }}
+      - name: Run unit tests
+        run: uv run pytest tests/unit -v

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from uuid import UUID
 
 try:
@@ -33,8 +33,6 @@ from axonpush.models.events import EventType
 logger = logging.getLogger("axonpush")
 
 # Use TYPE_CHECKING to avoid circular import issues with the client
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     from axonpush.client import AxonPush
 

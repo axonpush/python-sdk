@@ -1,4 +1,8 @@
+import pytest
+
 from axonpush.models.webhooks import WebhookEndpoint
+
+pytestmark = pytest.mark.e2e
 
 
 class TestWebhooksResource:

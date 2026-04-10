@@ -1,7 +1,11 @@
 import uuid
 
+import pytest
+
 from axonpush.models.channels import Channel
 from tests.conftest import EXISTING_APP_ID
+
+pytestmark = pytest.mark.e2e
 
 
 class TestChannelsResource:
@@ -22,7 +26,6 @@ class TestChannelsResource:
         name = f"test-ch-{uuid.uuid4().hex[:8]}"
         ch = client.channels.create(name, EXISTING_APP_ID)
         client.channels.delete(ch.id)
-        import pytest
         from axonpush.exceptions import NotFoundError
         with pytest.raises((NotFoundError, Exception)):
             client.channels.get(ch.id)

@@ -1,10 +1,13 @@
 import threading
 import time
 
+import pytest
+
 from axonpush import EventType
 from axonpush.models.events import Event
 from axonpush.realtime.sse import SSESubscription
 
+pytestmark = pytest.mark.e2e
 
 
 class TestSSESubscription:

@@ -1,5 +1,6 @@
-import asyncio
 import uuid
+
+import pytest
 
 from axonpush import EventType
 from axonpush.models.apps import App
@@ -7,6 +8,8 @@ from axonpush.models.channels import Channel
 from axonpush.models.events import Event
 
 from tests.conftest import EXISTING_APP_ID
+
+pytestmark = pytest.mark.e2e
 
 
 class TestAsyncEvents:
