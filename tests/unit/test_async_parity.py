@@ -21,7 +21,6 @@ def _success():
             "id": 1,
             "identifier": "x",
             "payload": {},
-            "channel_id": 5,
             "eventType": "custom",
         },
     )

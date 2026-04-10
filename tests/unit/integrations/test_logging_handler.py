@@ -27,7 +27,6 @@ def _ack():
             "id": 1,
             "identifier": "test",
             "payload": {},
-            "channel_id": 5,
             "eventType": "app.log",
         },
     )
@@ -70,7 +69,13 @@ class TestLoggingHandlerPayload:
         assert body["metadata"]["framework"] == "stdlib-logging"
 
     def test_severity_mapping(self, mock_router, isolated_logger):
-        """Each Python level → expected OTel severity number."""
+        """Each Python level → expected OTel severity number.
+
+        We also assert that ``route.call_count`` grows by exactly 1 per
+        iteration. Without this guard, a silently filtered level (e.g. if
+        the handler ever started dropping DEBUG) would leave us reading the
+        previous iteration's body and the test would pass against stale data.
+        """
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
             isolated_logger.addHandler(
@@ -83,11 +88,18 @@ class TestLoggingHandlerPayload:
                 (isolated_logger.error, "e", 17, "ERROR"),
                 (isolated_logger.critical, "c", 21, "FATAL"),
             ]
+            expected_calls = 0
             for log_fn, msg, expected_num, expected_text in cases:
                 log_fn(msg)
+                expected_calls += 1
+                assert route.call_count == expected_calls, (
+                    f"expected handler to emit a request for {expected_text}, "
+                    f"but route.call_count is {route.call_count}"
+                )
                 body = _last_body(route)
                 assert body["payload"]["severityNumber"] == expected_num
                 assert body["payload"]["severityText"] == expected_text
+                assert body["payload"]["body"] == msg
 
     def test_extra_kwargs_become_attributes(self, mock_router, isolated_logger):
         """``logger.error("...", extra={"user_id": 42})`` should land in attributes."""
@@ -132,11 +144,18 @@ class TestLoggingHandlerPayload:
             base_url=BASE_URL,
             fail_open=False,  # would normally raise APIConnectionError
         ) as c:
-            isolated_logger.addHandler(
-                AxonPushLoggingHandler(client=c, channel_id=5)
-            )
-            # Should NOT raise even though the underlying transport would
-            isolated_logger.error("test")
+            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            # Silence handleError's noisy stderr fallback for this test
+            handler.handleError = lambda record: None  # type: ignore[method-assign]
+            isolated_logger.addHandler(handler)
+            try:
+                isolated_logger.error("test")
+            except Exception as exc:
+                pytest.fail(
+                    f"AxonPushLoggingHandler.emit() raised {type(exc).__name__}: "
+                    f"{exc}. emit() must swallow all exceptions per the "
+                    f"logging.Handler contract."
+                )
 
     def test_resource_omitted_when_no_service_info(self, mock_router, isolated_logger):
         route = mock_router.post("/event").mock(return_value=_ack())

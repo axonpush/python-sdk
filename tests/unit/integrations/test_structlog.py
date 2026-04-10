@@ -1,6 +1,7 @@
 """Unit tests for the structlog integration."""
 from __future__ import annotations
 
+import copy
 import json
 
 import httpx
@@ -16,6 +17,17 @@ from axonpush.integrations.structlog import axonpush_structlog_processor  # noqa
 from tests.conftest import API_KEY, BASE_URL, TENANT_ID  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _reset_structlog():
+    """structlog.configure() is global state. Reset before AND after each test
+    so test order doesn't change behavior."""
+    structlog.reset_defaults()
+    try:
+        yield
+    finally:
+        structlog.reset_defaults()
+
+
 def _ack():
     return httpx.Response(
         200,
@@ -23,7 +35,6 @@ def _ack():
             "id": 1,
             "identifier": "structlog",
             "payload": {},
-            "channel_id": 5,
             "eventType": "app.log",
         },
     )
@@ -64,7 +75,12 @@ def test_processor_publishes_event(mock_router):
 
 def test_processor_is_non_destructive(mock_router):
     """The processor must NOT mutate the event_dict — downstream processors
-    (e.g. JSONRenderer) need to see the original keys."""
+    (e.g. JSONRenderer) need to see the original keys AND values intact.
+
+    The processor returns the same dict instance, so a key-only check would
+    be aliased and meaningless. We deepcopy a snapshot before the call and
+    compare the full dict contents after.
+    """
     mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         forwarder = axonpush_structlog_processor(client=c, channel_id=5)
@@ -73,14 +89,14 @@ def test_processor_is_non_destructive(mock_router):
             "level": "info",
             "timestamp": "2026-04-11T12:00:00",
             "user_id": 7,
+            "nested": {"a": 1, "b": [2, 3]},
         }
-        # Snapshot the contents (the function returns the same dict instance,
-        # so we copy to make the assertion meaningful)
-        original_keys = set(event_dict.keys())
+        snapshot = copy.deepcopy(event_dict)
         result = forwarder(None, "info", event_dict)
-        assert set(result.keys()) == original_keys
-        assert result["event"] == "hello"
-        assert result["user_id"] == 7
+        # Same instance returned (pass-through, not a copy)
+        assert result is event_dict
+        # No keys added/removed AND no values mutated
+        assert event_dict == snapshot
 
 
 def test_severity_from_method_name_when_level_missing(mock_router):

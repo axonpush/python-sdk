@@ -27,7 +27,6 @@ def _ack():
             "id": 1,
             "identifier": "span",
             "payload": {},
-            "channel_id": 5,
             "eventType": "app.span",
         },
     )
@@ -92,9 +91,12 @@ def test_exporter_returns_success_on_happy_path(mock_router):
     assert result == SpanExportResult.SUCCESS
 
 
-def test_exporter_returns_failure_on_exception(mock_router):
-    """If publish raises (ignoring fail_open), export() should return FAILURE,
-    not crash the user's tracing pipeline."""
+def test_exporter_returns_success_when_per_span_publish_fails(mock_router):
+    """``_export_one`` wraps each publish in its own try/except, so a failing
+    publish must NOT propagate up into ``export()``. The exporter contract is
+    that one bad span never breaks the OTel SDK's batch flush — the user's
+    tracing pipeline keeps running.
+    """
     mock_router.post("/event").mock(side_effect=RuntimeError("boom"))
     with AxonPush(
         api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=False
@@ -104,15 +106,23 @@ def test_exporter_returns_failure_on_exception(mock_router):
         tracer = provider.get_tracer(__name__)
         with tracer.start_as_current_span("op") as span:
             pass
-        # The exporter swallows the per-span exception and returns SUCCESS
-        # (each span emit is wrapped in try/except). Calling export() with a
-        # span that triggers a publish failure should still return SUCCESS
-        # because _export_one catches the exception internally — verify that
-        # contract holds.
         result = exporter.export([span])
-    # The implementation logs and continues; result is SUCCESS because the
-    # outer try/except wraps the loop, not the individual spans.
-    assert result in (SpanExportResult.SUCCESS, SpanExportResult.FAILURE)
+    assert result == SpanExportResult.SUCCESS
+
+
+def test_exporter_returns_failure_when_export_loop_crashes(mock_router):
+    """The OUTER try/except in ``export()`` only fires if iterating ``spans``
+    itself raises (e.g. a malformed Sequence). Verify that contract: a non-
+    iterable input → FAILURE, not a crash.
+    """
+    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+        exporter = AxonPushSpanExporter(client=c, channel_id=5)
+        # Passing something that raises on iteration
+        class _BadSpans:
+            def __iter__(self):
+                raise RuntimeError("iter blew up")
+        result = exporter.export(_BadSpans())  # type: ignore[arg-type]
+    assert result == SpanExportResult.FAILURE
 
 
 def test_parent_span_id_propagated(mock_router):

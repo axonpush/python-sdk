@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 
 from axonpush import AxonPush, EventType
 
@@ -18,7 +19,6 @@ def _success_response(**overrides):
         "id": 1,
         "identifier": "x",
         "payload": {},
-        "channel_id": 5,
         "eventType": "custom",
     }
     base.update(overrides)
@@ -107,6 +107,30 @@ class TestPublishRequestBody:
             result = c.events.publish("x", {}, channel_id=5)
         assert result is None
 
+    def test_fail_open_sentinel_distinct_from_204_response(self, mock_router):
+        """``events.publish()`` uses ``_is_fail_open()`` to detect the
+        fail-open sentinel and short-circuit to ``None``. A real 204 (or empty
+        200) response from the backend ALSO yields ``None`` from the transport
+        layer — but the sentinel check (``data is _FAIL_OPEN_SENTINEL``) is an
+        identity check, so a real ``None`` won't trigger short-circuit. It
+        falls through to ``Event.model_validate(None)``, which raises a
+        Pydantic ValidationError.
+
+        This test pins the current behavior so a future refactor that
+        accidentally treats ``None`` like the sentinel (and silently swallows
+        a 204) is loud, not silent. **This is a real SDK quirk worth
+        documenting** — if the backend ever returns 204 here, the SDK will
+        crash. Worth opening an issue against axonpush-python.
+        """
+        from pydantic import ValidationError as PydValidationError
+
+        mock_router.post("/event").mock(return_value=httpx.Response(204))
+        with AxonPush(
+            api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL
+        ) as c:
+            with pytest.raises(PydValidationError):
+                c.events.publish("x", {}, channel_id=5)
+
 
 class TestPublishResponseParsing:
     def test_parses_event_with_camelcase_aliases(self, mock_router):
@@ -117,7 +141,6 @@ class TestPublishResponseParsing:
                     "id": 99,
                     "identifier": "boot",
                     "payload": {"step": 1},
-                    "channel_id": 5,
                     "agentId": "orchestrator",
                     "traceId": "tr_xyz",
                     "spanId": "sp_001",
@@ -168,14 +191,12 @@ class TestList:
                             "id": 1,
                             "identifier": "a",
                             "payload": {},
-                            "channel_id": 5,
                             "eventType": "custom",
                         },
                         {
                             "id": 2,
                             "identifier": "b",
                             "payload": {},
-                            "channel_id": 5,
                             "eventType": "custom",
                         },
                     ]

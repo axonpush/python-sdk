@@ -25,7 +25,6 @@ def _ack():
             "id": 1,
             "identifier": "x",
             "payload": {},
-            "channel_id": 5,
             "eventType": "app.log",
         },
     )
@@ -63,11 +62,17 @@ def test_sink_emits_app_log(mock_router):
 
 
 def test_severity_mapping(mock_router):
+    """Each Loguru level → expected OTel severity number.
+
+    Assert call_count grows by 1 per iteration so a silently dropped level
+    can't pass against stale data.
+    """
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         loguru_logger.add(
             create_axonpush_loguru_sink(client=c, channel_id=5),
             serialize=True,
+            level="DEBUG",  # explicit so DEBUG isn't filtered by the sink
         )
         cases = [
             (loguru_logger.debug, 5, "DEBUG"),
@@ -76,8 +81,14 @@ def test_severity_mapping(mock_router):
             (loguru_logger.error, 17, "ERROR"),
             (loguru_logger.critical, 21, "FATAL"),
         ]
+        expected_calls = 0
         for log_fn, expected_num, expected_text in cases:
             log_fn("msg")
+            expected_calls += 1
+            assert route.call_count == expected_calls, (
+                f"expected loguru sink to emit for {expected_text}, "
+                f"but route.call_count is {route.call_count}"
+            )
             body = _last_body(route)
             assert body["payload"]["severityNumber"] == expected_num
             assert body["payload"]["severityText"] == expected_text

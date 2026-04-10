@@ -7,6 +7,8 @@ that catches a specific subclass.
 """
 from __future__ import annotations
 
+import logging
+
 import httpx
 import pytest
 
@@ -102,11 +104,18 @@ def test_validation_error_message_list_is_joined(mock_router):
 def test_fail_open_swallows_connection_error(mock_router, caplog):
     """With fail_open=True (default), TransportError → returns None, logs warning."""
     mock_router.post("/event").mock(side_effect=httpx.ConnectError("refused"))
-    with AxonPush(
-        api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=True
-    ) as c:
-        result = c.events.publish("x", {}, channel_id=1)
+    with caplog.at_level(logging.WARNING, logger="axonpush"):
+        with AxonPush(
+            api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=True
+        ) as c:
+            result = c.events.publish("x", {}, channel_id=1)
     assert result is None  # publish() converts the fail-open sentinel to None
+    # The "logs warning" half of the contract — verify we said something useful.
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("fail_open" in r.message for r in warnings), (
+        f"expected a fail_open warning in axonpush log, got: "
+        f"{[r.message for r in warnings]}"
+    )
 
 
 def test_fail_closed_raises_api_connection_error(mock_router):

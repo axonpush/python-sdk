@@ -32,12 +32,41 @@ class TestSyncClient:
         assert isinstance(c.traces, TracesResource)
         c.close()
 
-    def test_auth_headers_attached_to_httpx(self):
-        c = AxonPush(api_key="ak_secret", tenant_id="99", base_url=BASE_URL)
-        headers = c._transport._client.headers
-        assert headers["x-api-key"] == "ak_secret"
-        assert headers["x-tenant-id"] == "99"
-        assert headers["content-type"] == "application/json"
+    def test_auth_headers_sent_on_request(self, mock_router):
+        """Verify auth headers reach the wire by inspecting the captured
+        request, not the SDK's internal _transport state."""
+        route = mock_router.post("/event").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": 1,
+                    "identifier": "x",
+                    "payload": {},
+                    "eventType": "custom",
+                },
+            )
+        )
+        with AxonPush(api_key="ak_secret", tenant_id="99", base_url=BASE_URL) as c:
+            c.events.publish("x", {}, channel_id=1)
+
+        sent = route.calls.last.request.headers
+        assert sent["x-api-key"] == "ak_secret"
+        assert sent["x-tenant-id"] == "99"
+        assert sent["content-type"] == "application/json"
+
+    def test_timeout_passed_to_httpx(self):
+        """Verify the ``timeout`` constructor arg flows into the underlying
+        httpx.Client. (Issue #15 — previously untested.)"""
+        c = AxonPush(
+            api_key="ak_x",
+            tenant_id="1",
+            base_url=BASE_URL,
+            timeout=12.5,
+        )
+        # httpx.Client stores a Timeout object on its private _timeout attr
+        assert c._transport._client.timeout.read == 12.5
+        # Connect timeout is hardcoded to 5.0 in _http.py
+        assert c._transport._client.timeout.connect == 5.0
         c.close()
 
     def test_base_url_trailing_slash_stripped(self):
@@ -58,7 +87,6 @@ class TestSyncClient:
                     "id": 123,
                     "identifier": "test",
                     "payload": {"k": "v"},
-                    "channel_id": 5,
                     "eventType": "agent.start",
                 },
             )
@@ -97,7 +125,6 @@ class TestAsyncClient:
                     "id": 1,
                     "identifier": "async_test",
                     "payload": {},
-                    "channel_id": 7,
                     "eventType": "custom",
                 },
             )
