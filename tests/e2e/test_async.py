@@ -7,14 +7,14 @@ from axonpush.models.apps import App
 from axonpush.models.channels import Channel
 from axonpush.models.events import Event
 
-from tests.conftest import EXISTING_APP_ID
-
 pytestmark = pytest.mark.e2e
 
 
 class TestAsyncEvents:
-    async def test_publish_event(self, async_client):
-        ch = await async_client.channels.create(f"async-ch-{uuid.uuid4().hex[:8]}", EXISTING_APP_ID)
+    async def test_publish_event(self, async_client, backend):
+        ch = await async_client.channels.create(
+            f"async-ch-{uuid.uuid4().hex[:8]}", backend.app_id
+        )
 
         event = await async_client.events.publish(
             "async_action",
@@ -32,8 +32,10 @@ class TestAsyncEvents:
         except Exception:
             pass
 
-    async def test_list_events(self, async_client):
-        ch = await async_client.channels.create(f"async-ch-{uuid.uuid4().hex[:8]}", EXISTING_APP_ID)
+    async def test_list_events(self, async_client, backend):
+        ch = await async_client.channels.create(
+            f"async-ch-{uuid.uuid4().hex[:8]}", backend.app_id
+        )
 
         await async_client.events.publish(
             "async_list_1", {"i": 1}, channel_id=ch.id
@@ -50,16 +52,16 @@ class TestAsyncEvents:
 
 
 class TestAsyncApps:
-    async def test_get_app(self, async_client):
-        app = await async_client.apps.get(EXISTING_APP_ID)
+    async def test_get_app(self, async_client, backend):
+        app = await async_client.apps.get(backend.app_id)
         assert isinstance(app, App)
-        assert app.id == EXISTING_APP_ID
+        assert app.id == backend.app_id
 
 
 class TestAsyncChannels:
-    async def test_crud(self, async_client):
+    async def test_crud(self, async_client, backend):
         name = f"async-ch-{uuid.uuid4().hex[:8]}"
-        ch = await async_client.channels.create(name, EXISTING_APP_ID)
+        ch = await async_client.channels.create(name, backend.app_id)
         assert isinstance(ch, Channel)
         assert ch.name == name
 

@@ -63,6 +63,6 @@ class TestTracesResource:
         summary = client.traces.get_summary(trace_id)
         assert isinstance(summary, TraceSummary)
         assert summary.trace_id == trace_id
-        assert summary.total_events >= 3
+        assert summary.event_count >= 3
         assert "tracer" in summary.agents
         assert summary.tool_call_count >= 1

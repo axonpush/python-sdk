@@ -1,18 +1,17 @@
 import pytest
 
 from axonpush.models.apps import App
-from tests.conftest import EXISTING_APP_ID
 
 pytestmark = pytest.mark.e2e
 
 
 class TestAppsResource:
-    def test_get_app(self, client):
-        app = client.apps.get(EXISTING_APP_ID)
+    def test_get_app(self, client, backend):
+        app = client.apps.get(backend.app_id)
         assert isinstance(app, App)
-        assert app.id == EXISTING_APP_ID
+        assert app.id == backend.app_id
         assert app.name is not None
 
-    def test_get_app_has_channels(self, client):
-        app = client.apps.get(EXISTING_APP_ID)
+    def test_get_app_has_channels(self, client, backend):
+        app = client.apps.get(backend.app_id)
         assert isinstance(app.channels, list)
