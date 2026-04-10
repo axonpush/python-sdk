@@ -62,6 +62,12 @@ openai-agents = ["openai-agents>=0.1.0"]
 anthropic = ["anthropic>=0.30.0"]
 crewai = ["crewai>=0.50.0"]
 deepagents = ["deepagents>=0.1.0; python_version>='3.11'"]
+loguru = ["loguru>=0.7.0"]
+structlog = ["structlog>=24.0.0"]
+otel = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+]
 all = [
     "axonpush[websocket]",
     "axonpush[langchain]",
@@ -69,6 +75,9 @@ all = [
     "axonpush[anthropic]",
     "axonpush[crewai]",
     "axonpush[deepagents]",
+    "axonpush[loguru]",
+    "axonpush[structlog]",
+    "axonpush[otel]",
 ]
 dev = [
     "pytest>=8.0",

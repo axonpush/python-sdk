@@ -16,6 +16,9 @@ class EventType(str, Enum):
     AGENT_ERROR = "agent.error"
     AGENT_HANDOFF = "agent.handoff"
     AGENT_LLM_TOKEN = "agent.llm.token"
+    AGENT_LOG = "agent.log"
+    APP_LOG = "app.log"
+    APP_SPAN = "app.span"
     CUSTOM = "custom"
 
 
