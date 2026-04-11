@@ -1,6 +1,6 @@
 [project]
 name = "axonpush"
-version = "0.0.3"
+version = "0.0.4"
 description = "Python SDK for AxonPush — real-time event infrastructure for AI agent systems"
 readme = "README.md"
 license = "MIT"
