@@ -166,3 +166,206 @@ class TestLoggingHandlerPayload:
             isolated_logger.info("plain")
         body = _last_body(route)
         assert "resource" not in body["payload"]
+
+
+def _make_record(name: str, msg: str = "x") -> logging.LogRecord:
+    """Construct a minimal LogRecord for filter-path tests."""
+    return logging.LogRecord(
+        name=name,
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg=msg,
+        args=None,
+        exc_info=None,
+    )
+
+
+class TestSelfRecursionFilter:
+    """The handler must NOT ship records that would create an infinite loop.
+
+    Publishing an event triggers an httpx HTTP request; httpx itself logs
+    that request at INFO level via the ``httpx`` stdlib logger. Without a
+    filter, every publish would queue another publish, and the channel
+    would fill with "HTTP Request: POST /event" echoes. The always-on
+    excluded prefixes are ``httpx``, ``httpcore``, ``axonpush``.
+    """
+
+    def test_httpx_records_are_dropped(self, mock_router):
+        route = mock_router.post("/event").mock(return_value=_ack())
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler.handle(_make_record("httpx"))
+            handler.handle(_make_record("httpx._client"))
+        assert not route.called
+
+    def test_httpcore_records_are_dropped(self, mock_router):
+        route = mock_router.post("/event").mock(return_value=_ack())
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler.handle(_make_record("httpcore.connection"))
+            handler.handle(_make_record("httpcore.http11"))
+        assert not route.called
+
+    def test_axonpush_internal_logger_is_dropped_exact_match(self, mock_router):
+        """The SDK's own ``axonpush`` logger must be blocked to prevent
+        feedback when ``_http.py`` / ``client.py`` log fail-open warnings."""
+        route = mock_router.post("/event").mock(return_value=_ack())
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler.handle(_make_record("axonpush"))
+        assert not route.called
+
+    def test_axonpush_user_namespace_is_allowed(self, mock_router):
+        """User code that puts its loggers in the ``axonpush.*`` namespace
+        (e.g. a plugin, or the existing test fixture) must still ship.
+
+        The ``axonpush`` default is matched by EQUALITY, not prefix, so
+        ``axonpush.plugins.foo`` / ``axonpush.test.bar`` pass through."""
+        route = mock_router.post("/event").mock(return_value=_ack())
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler.handle(_make_record("axonpush.plugins.foo"))
+            handler.handle(_make_record("axonpush.test.bar"))
+        assert route.call_count == 2
+
+    def test_user_records_still_flow_through(self, mock_router):
+        route = mock_router.post("/event").mock(return_value=_ack())
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler.handle(_make_record("my_app.users"))
+        assert route.call_count == 1
+
+    def test_user_supplied_exclusions_are_additive(self, mock_router):
+        """User-supplied prefixes are added on top of the defaults."""
+        route = mock_router.post("/event").mock(return_value=_ack())
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            handler = AxonPushLoggingHandler(
+                client=c,
+                channel_id=5,
+                exclude_loggers=["werkzeug", "my_app.noisy"],
+            )
+            handler.handle(_make_record("werkzeug"))
+            handler.handle(_make_record("my_app.noisy.subsystem"))
+        assert not route.called
+
+    def test_user_exclusions_cannot_disable_defaults(self, mock_router):
+        """Passing a custom list must NOT re-enable the feedback loop.
+
+        Even if a user passes a custom ``exclude_loggers`` list that does
+        not include ``httpx`` / ``httpcore`` / ``axonpush``, those defaults
+        must still be enforced — the additive semantics are load-bearing.
+        """
+        route = mock_router.post("/event").mock(return_value=_ack())
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            handler = AxonPushLoggingHandler(
+                client=c,
+                channel_id=5,
+                exclude_loggers=["my_app.noisy"],
+            )
+            handler.handle(_make_record("httpx"))
+            handler.handle(_make_record("httpcore"))
+            handler.handle(_make_record("axonpush"))
+        assert not route.called
+
+
+class TestDictConfigConstructor:
+    """AxonPushLoggingHandler must be usable via logging.config.dictConfig.
+
+    Django uses dictConfig in ``settings.py``; dictConfig only supports
+    primitive kwargs (strings/ints), so a pre-built ``client`` instance
+    can't be passed. The constructor accepts ``api_key`` / ``tenant_id`` /
+    ``base_url`` kwargs OR reads them from environment variables, and
+    fails fast with an actionable error if neither path yields creds.
+    """
+
+    def test_builds_client_from_credential_kwargs(
+        self, mock_router, isolated_logger
+    ):
+        route = mock_router.post("/event").mock(return_value=_ack())
+        handler = AxonPushLoggingHandler(
+            api_key=API_KEY,
+            tenant_id=TENANT_ID,
+            base_url=BASE_URL,
+            channel_id=5,
+            service_name="dictconfig-test",
+        )
+        isolated_logger.addHandler(handler)
+        isolated_logger.info("hello")
+        assert route.called
+        body = _last_body(route)
+        assert body["payload"]["resource"]["service.name"] == "dictconfig-test"
+
+    def test_builds_client_from_env_vars(
+        self, mock_router, isolated_logger, monkeypatch
+    ):
+        monkeypatch.setenv("AXONPUSH_API_KEY", API_KEY)
+        monkeypatch.setenv("AXONPUSH_TENANT_ID", TENANT_ID)
+        monkeypatch.setenv("AXONPUSH_BASE_URL", BASE_URL)
+        route = mock_router.post("/event").mock(return_value=_ack())
+        handler = AxonPushLoggingHandler(channel_id=5)
+        isolated_logger.addHandler(handler)
+        isolated_logger.info("env-test")
+        assert route.called
+
+    def test_missing_credentials_raises(self, monkeypatch):
+        monkeypatch.delenv("AXONPUSH_API_KEY", raising=False)
+        monkeypatch.delenv("AXONPUSH_TENANT_ID", raising=False)
+        monkeypatch.delenv("AXONPUSH_BASE_URL", raising=False)
+        with pytest.raises(ValueError, match="provide either client="):
+            AxonPushLoggingHandler(channel_id=5)
+
+    def test_client_and_credentials_conflict_raises(self):
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            with pytest.raises(ValueError, match="not both"):
+                AxonPushLoggingHandler(
+                    client=c,
+                    api_key="ak_other",
+                    tenant_id="2",
+                    channel_id=5,
+                )
+
+    def test_via_logging_dict_config(self, mock_router, monkeypatch):
+        """End-to-end: build the handler through ``logging.config.dictConfig``.
+
+        This is the exact pattern a Django ``LOGGING`` setting would use:
+        dictConfig passes only primitive kwargs, so a pre-built client is
+        not available — the handler must resolve credentials itself.
+        """
+        import logging.config
+
+        monkeypatch.setenv("AXONPUSH_API_KEY", API_KEY)
+        monkeypatch.setenv("AXONPUSH_TENANT_ID", TENANT_ID)
+        monkeypatch.setenv("AXONPUSH_BASE_URL", BASE_URL)
+        route = mock_router.post("/event").mock(return_value=_ack())
+
+        name = f"axonpush.test.dictconfig.{id(object())}"
+        logging.config.dictConfig(
+            {
+                "version": 1,
+                "disable_existing_loggers": False,
+                "handlers": {
+                    "axonpush": {
+                        "class": "axonpush.integrations.logging_handler.AxonPushLoggingHandler",
+                        "channel_id": 5,
+                        "service_name": "django-style",
+                    },
+                },
+                "loggers": {
+                    name: {
+                        "handlers": ["axonpush"],
+                        "level": "INFO",
+                        "propagate": False,
+                    },
+                },
+            }
+        )
+        try:
+            logging.getLogger(name).info("django hello")
+            assert route.called
+            body = _last_body(route)
+            assert body["payload"]["resource"]["service.name"] == "django-style"
+        finally:
+            lg = logging.getLogger(name)
+            for h in list(lg.handlers):
+                lg.removeHandler(h)

@@ -28,8 +28,9 @@ Usage::
 from __future__ import annotations
 
 import logging
+import os
 import sys
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, FrozenSet, Optional, Sequence, Tuple, TYPE_CHECKING
 
 from axonpush._tracing import current_trace, get_or_create_trace
 from axonpush.integrations._otel_payload import (
@@ -56,24 +57,90 @@ _STD_LOGRECORD_ATTRS = frozenset(
 )
 
 
+# Loggers whose records must NEVER be shipped back to AxonPush. Publishing an
+# event triggers an httpx HTTP request, which httpx itself logs at INFO level
+# via its own stdlib logger — if we forwarded that record, we'd emit another
+# event, triggering another log, and so on until the channel is flooded with
+# echoing "HTTP Request: POST /event" lines.
+#
+# - ``httpx`` / ``httpcore`` are matched as PREFIXES because those libraries
+#   create several sub-loggers (``httpx._client``, ``httpcore.connection``,
+#   ``httpcore.http11``, ...).
+# - ``axonpush`` is the SDK's own internal logger for warnings/diagnostics.
+#   We match it by EXACT equality (not prefix), so user code that happens to
+#   use the ``axonpush.*`` namespace (e.g. ``axonpush.plugins.foo`` or
+#   ``axonpush.test.*``) still gets its records shipped normally.
+#
+# These defaults are always-on and cannot be disabled. Users can add more
+# logger-name PREFIXES via the ``exclude_loggers`` kwarg on
+# ``AxonPushLoggingHandler`` — those are additive.
+_DEFAULT_EXCLUDED_EXACT: FrozenSet[str] = frozenset({"axonpush"})
+_DEFAULT_EXCLUDED_PREFIXES: Tuple[str, ...] = ("httpx", "httpcore")
+
+#: Public listing of always-on excluded logger names, in one place for
+#: discoverability. Union of the exact-match and prefix-match defaults.
+DEFAULT_EXCLUDED_LOGGERS: Tuple[str, ...] = (
+    tuple(sorted(_DEFAULT_EXCLUDED_EXACT)) + _DEFAULT_EXCLUDED_PREFIXES
+)
+
+
+class _SelfRecursionFilter(logging.Filter):
+    """Drops records whose logger name matches an excluded name or prefix.
+
+    ``exact`` and ``prefixes`` are both checked — a record is dropped if
+    ``record.name`` is in ``exact`` OR starts with any prefix in ``prefixes``.
+    """
+
+    def __init__(
+        self, exact: FrozenSet[str], prefixes: Tuple[str, ...]
+    ) -> None:
+        super().__init__()
+        self._exact = exact
+        self._prefixes = prefixes
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        name = record.name
+        if name in self._exact:
+            return False
+        return not name.startswith(self._prefixes)
+
+
 class AxonPushLoggingHandler(logging.Handler):
     """A ``logging.Handler`` that ships log records to AxonPush as ``app.log`` events."""
 
     def __init__(
         self,
         *,
-        client: "AxonPush | AsyncAxonPush",
+        client: Optional["AxonPush | AsyncAxonPush"] = None,
         channel_id: int,
+        api_key: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        base_url: Optional[str] = None,
         source: str = "app",
         service_name: Optional[str] = None,
         service_version: Optional[str] = None,
         environment: Optional[str] = None,
         agent_id: Optional[str] = None,
         level: int = logging.NOTSET,
+        exclude_loggers: Optional[Sequence[str]] = None,
     ) -> None:
         super().__init__(level=level)
         if source not in ("agent", "app"):
             raise ValueError(f"source must be 'agent' or 'app', got {source!r}")
+
+        # Mutual exclusion: a pre-built client and credential kwargs are two
+        # separate configuration modes — mixing them is almost always a bug.
+        has_credentials = any(x is not None for x in (api_key, tenant_id, base_url))
+        if client is not None and has_credentials:
+            raise ValueError(
+                "AxonPushLoggingHandler: pass either client= or "
+                "api_key=/tenant_id=, not both"
+            )
+
+        # dictConfig path: no client instance available, build one from
+        # explicit kwargs or environment variables.
+        if client is None:
+            client = self._build_client(api_key, tenant_id, base_url)
 
         self._client = client
         self._channel_id = channel_id
@@ -88,6 +155,43 @@ class AxonPushLoggingHandler(logging.Handler):
         if environment is not None:
             resource["deployment.environment"] = environment
         self._resource = resource or None
+
+        # Install the always-on self-recursion filter plus any user-supplied
+        # logger-name prefixes. Additive — defaults cannot be disabled.
+        user_prefixes = tuple(exclude_loggers or ())
+        self.addFilter(
+            _SelfRecursionFilter(
+                exact=_DEFAULT_EXCLUDED_EXACT,
+                prefixes=_DEFAULT_EXCLUDED_PREFIXES + user_prefixes,
+            )
+        )
+
+    @staticmethod
+    def _build_client(
+        api_key: Optional[str],
+        tenant_id: Optional[str],
+        base_url: Optional[str],
+    ) -> "AxonPush":
+        """Construct a sync ``AxonPush`` client for dictConfig / env-var callers."""
+        # Explicit kwargs first, then fall back to environment variables.
+        api_key = api_key or os.environ.get("AXONPUSH_API_KEY")
+        tenant_id = tenant_id or os.environ.get("AXONPUSH_TENANT_ID")
+        base_url = base_url or os.environ.get("AXONPUSH_BASE_URL")
+
+        if not api_key or not tenant_id:
+            raise ValueError(
+                "AxonPushLoggingHandler: provide either client= or "
+                "api_key=/tenant_id= (or set the AXONPUSH_API_KEY and "
+                "AXONPUSH_TENANT_ID environment variables)"
+            )
+
+        # Lazy import to avoid any circular-import risk at module load time.
+        from axonpush.client import AxonPush
+
+        kwargs: Dict[str, Any] = {"api_key": api_key, "tenant_id": tenant_id}
+        if base_url is not None:
+            kwargs["base_url"] = base_url
+        return AxonPush(**kwargs)
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
