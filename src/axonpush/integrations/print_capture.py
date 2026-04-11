@@ -135,7 +135,7 @@ class _AxonPushTeeStream:
             # For the async client, the call returns a coroutine — we ignore the
             # result (fire-and-forget). The user is responsible for keeping
             # an event loop running if they're using AsyncAxonPush.
-            result = self._client.events.publish(  # type: ignore[union-attr]
+            result = self._client.events.publish(
                 identifier="print",
                 payload=payload,
                 channel_id=self._channel_id,
@@ -147,10 +147,10 @@ class _AxonPushTeeStream:
             )
             # Async client returns a coroutine — schedule it on the running loop
             # if there is one, otherwise drop (the caller doesn't await us).
-            if hasattr(result, "__await__"):
-                try:
-                    import asyncio
+            import asyncio
 
+            if asyncio.iscoroutine(result):
+                try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(result)
                 except RuntimeError:
@@ -180,7 +180,7 @@ def setup_print_capture(
 
     orig_stdout, orig_stderr = sys.stdout, sys.stderr
 
-    sys.stdout = _AxonPushTeeStream(  # type: ignore[assignment]
+    sys.stdout = _AxonPushTeeStream(
         orig_stdout,
         client,
         channel_id,
@@ -189,7 +189,7 @@ def setup_print_capture(
         stream_name="stdout",
         service_name=service_name,
     )
-    sys.stderr = _AxonPushTeeStream(  # type: ignore[assignment]
+    sys.stderr = _AxonPushTeeStream(
         orig_stderr,
         client,
         channel_id,

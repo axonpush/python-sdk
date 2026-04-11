@@ -98,7 +98,7 @@ class AxonPushSpanExporter(SpanExporter):
         return True
 
     def _export_one(self, span: ReadableSpan) -> None:
-        ctx = span.get_span_context()
+        ctx = span.get_span_context()  # type: ignore[no-untyped-call]
         trace_id = format(ctx.trace_id, "032x")
         span_id = format(ctx.span_id, "016x")
 
@@ -184,7 +184,7 @@ class AxonPushSpanExporter(SpanExporter):
             }
 
         try:
-            result = self._client.events.publish(  # type: ignore[union-attr]
+            result = self._client.events.publish(
                 identifier=span.name,
                 payload=payload,
                 channel_id=self._channel_id,
@@ -193,10 +193,10 @@ class AxonPushSpanExporter(SpanExporter):
                 event_type=EventType.APP_SPAN,
                 metadata={"framework": "opentelemetry"},
             )
-            if hasattr(result, "__await__"):
-                try:
-                    import asyncio
+            import asyncio
 
+            if asyncio.iscoroutine(result):
+                try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(result)
                 except RuntimeError:

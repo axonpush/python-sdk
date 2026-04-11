@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,6 @@ class CreateChannelParams(BaseModel):
 class Channel(BaseModel):
     id: int
     name: str
-    app: Optional[dict] = None  # noqa: UP007 — simplified; nested App object
+    app: Optional[Dict[str, Any]] = None  # simplified; nested App object
 
     model_config = {"populate_by_name": True}

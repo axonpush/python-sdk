@@ -28,7 +28,7 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Dict, Optional, cast
 
 try:
     import anthropic  # noqa: F401 — verify the package is installed
@@ -155,7 +155,7 @@ class AxonPushAnthropicTracer:
         self, identifier: str, event_type: EventType, payload: Dict[str, Any]
     ) -> None:
         try:
-            self._client.events.publish(  # type: ignore[union-attr]
+            self._client.events.publish(
                 identifier=identifier,
                 payload=payload,
                 channel_id=self._channel_id,
@@ -172,16 +172,23 @@ class AxonPushAnthropicTracer:
         self, identifier: str, event_type: EventType, payload: Dict[str, Any]
     ) -> None:
         try:
-            await self._client.events.publish(  # type: ignore[union-attr]
-                identifier=identifier,
-                payload=payload,
-                channel_id=self._channel_id,
-                agent_id=self._agent_id,
-                trace_id=self._trace.trace_id,
-                span_id=self._trace.next_span_id(),
-                event_type=event_type,
-                metadata={"framework": "anthropic"},
+            # _emit_async is only called from async methods on an async client,
+            # so events.publish returns a coroutine. Cast to satisfy mypy (which
+            # sees the union of AxonPush | AsyncAxonPush publish return types).
+            result = cast(
+                Awaitable[Any],
+                self._client.events.publish(
+                    identifier=identifier,
+                    payload=payload,
+                    channel_id=self._channel_id,
+                    agent_id=self._agent_id,
+                    trace_id=self._trace.trace_id,
+                    span_id=self._trace.next_span_id(),
+                    event_type=event_type,
+                    metadata={"framework": "anthropic"},
+                ),
             )
+            await result
         except Exception:
             logger.warning("AxonPush: failed to emit event %r, suppressing.", identifier, exc_info=True)
 

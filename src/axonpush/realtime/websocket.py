@@ -21,7 +21,7 @@ class WebSocketClient:
 
     def __init__(self, auth: AuthConfig) -> None:
         try:
-            import socketio
+            import socketio  # type: ignore[import-untyped]
         except ImportError:
             raise ImportError(
                 "WebSocket support requires the 'websocket' extra. "
@@ -34,8 +34,8 @@ class WebSocketClient:
         self._setup_handlers()
 
     def _setup_handlers(self) -> None:
-        @self._sio.on("event", namespace="/events")
-        def on_event(data: dict) -> None:
+        @self._sio.on("event", namespace="/events")  # type: ignore[untyped-decorator]
+        def on_event(data: Dict[str, Any]) -> None:
             try:
                 event = Event.model_validate(data)
             except Exception:
@@ -135,8 +135,8 @@ class AsyncWebSocketClient:
         self._setup_handlers()
 
     def _setup_handlers(self) -> None:
-        @self._sio.on("event", namespace="/events")
-        async def on_event(data: dict) -> None:
+        @self._sio.on("event", namespace="/events")  # type: ignore[untyped-decorator]
+        async def on_event(data: Dict[str, Any]) -> None:
             try:
                 event = Event.model_validate(data)
             except Exception:

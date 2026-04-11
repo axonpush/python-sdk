@@ -160,7 +160,7 @@ def create_axonpush_loguru_sink(
 
             trace = current_trace() or get_or_create_trace()
 
-            result = client.events.publish(  # type: ignore[union-attr]
+            result = client.events.publish(
                 identifier=str(record_dict.get("name", "loguru")),
                 payload=payload,
                 channel_id=channel_id,
@@ -171,10 +171,10 @@ def create_axonpush_loguru_sink(
                 metadata={"framework": "loguru"},
             )
 
-            if hasattr(result, "__await__"):
-                try:
-                    import asyncio
+            import asyncio
 
+            if asyncio.iscoroutine(result):
+                try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(result)
                 except RuntimeError:

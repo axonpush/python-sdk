@@ -144,7 +144,7 @@ class AxonPushLoggingHandler(logging.Handler):
                 EventType.APP_LOG if self._source == "app" else EventType.AGENT_LOG
             )
 
-            result = self._client.events.publish(  # type: ignore[union-attr]
+            result = self._client.events.publish(
                 identifier=record.name,
                 payload=payload,
                 channel_id=self._channel_id,
@@ -156,10 +156,10 @@ class AxonPushLoggingHandler(logging.Handler):
             )
 
             # Async client returns a coroutine — schedule on running loop if any.
-            if hasattr(result, "__await__"):
-                try:
-                    import asyncio
+            import asyncio
 
+            if asyncio.iscoroutine(result):
+                try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(result)
                 except RuntimeError:

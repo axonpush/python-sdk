@@ -136,7 +136,7 @@ def axonpush_structlog_processor(
 
             trace = current_trace() or get_or_create_trace()
 
-            result = client.events.publish(  # type: ignore[union-attr]
+            result = client.events.publish(
                 identifier="structlog",
                 payload=payload,
                 channel_id=channel_id,
@@ -147,10 +147,10 @@ def axonpush_structlog_processor(
                 metadata={"framework": "structlog"},
             )
 
-            if hasattr(result, "__await__"):
-                try:
-                    import asyncio
+            import asyncio
 
+            if asyncio.iscoroutine(result):
+                try:
                     loop = asyncio.get_running_loop()
                     loop.create_task(result)
                 except RuntimeError:
