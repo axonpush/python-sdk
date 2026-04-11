@@ -54,6 +54,8 @@ def main():
         log.warning("rate limit approaching", endpoint="/api/search", remaining=3)
         log.error("downstream timeout", endpoint="/api/search", elapsed_ms=5000)
 
+        forwarder.flush(timeout=5.0)
+
         events = client.events.list(channel_id=channel.id, limit=20)
         print(f"\nEvents published ({len(events)}):")
         for ev in events:
@@ -65,6 +67,7 @@ def main():
         client.apps.delete(app_id=app.id)
         print("\nCleaned up.")
 
+        forwarder.close()
         # Reset structlog so downstream examples in the same process don't
         # inherit our processor chain.
         structlog.reset_defaults()

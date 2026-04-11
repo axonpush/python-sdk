@@ -48,8 +48,13 @@ def main():
         except RuntimeError:
             logger.exception("failed to charge card", extra={"order_id": 1234})
 
+        # Non-blocking publisher: drain pending records before teardown so
+        # the in-flight HTTP calls don't race the channel/app deletion.
+        handler.flush(timeout=5.0)
+
         # Detach cleanly so subsequent examples don't inherit the handler.
         root.removeHandler(handler)
+        handler.close()
 
         events = client.events.list(channel_id=channel.id, limit=20)
         print(f"\nEvents published ({len(events)}):")

@@ -48,7 +48,9 @@ def main():
         except RuntimeError:
             logger.exception("search backend failed", endpoint="/api/search")
 
+        sink.flush(timeout=5.0)
         logger.remove(sink_id)
+        sink.close()
 
         events = client.events.list(channel_id=channel.id, limit=20)
         print(f"\nEvents published ({len(events)}):")

@@ -135,7 +135,9 @@ callbacks.on_crew_end(result)
 
 Ship logs and traces from your existing Python observability stack to AxonPush. All four integrations emit OpenTelemetry-shaped payloads, so the events line up with anything else you're already sending to an OTel-compatible backend.
 
-> The stdlib `AxonPushLoggingHandler` installs a self-recursion filter by default that drops records from `httpx`, `httpcore`, and the SDK's own `axonpush` logger. Without it, each publish would trigger an `httpx` INFO log ("HTTP Request: POST /event 201 Created") that would get re-shipped, creating an infinite loop. The filter is always-on and cannot be disabled; you can add more excluded prefixes via `exclude_loggers=[...]`.
+> **Non-blocking by default (v0.0.5+).** All four integrations submit publishes onto a bounded in-memory queue and drain them from a single background daemon thread, so `logger.info(...)` stays O(microseconds) on the caller's thread — no HTTP round-trip on the hot path. The queue is bounded (default 1000 records); overflow drops the oldest with a rate-limited warning. Call `handler.flush(timeout=)` or use `@flush_after_invocation(handler)` at known checkpoints (end of a Lambda invocation, end of a test) to guarantee delivery. Pass `mode="sync"` on any integration if you need blocking publishes (one-shot scripts, deterministic tests). Fork-safe via `os.register_at_fork` — Gunicorn `--preload` / Celery `--pool=prefork` workers get a fresh queue + thread after fork.
+
+> **Self-recursion filter.** The stdlib `AxonPushLoggingHandler` installs a filter by default that drops records from `httpx`, `httpcore`, and the SDK's own `axonpush` logger. Without it, each publish would trigger an `httpx` INFO log ("HTTP Request: POST /event 201 Created") that would get re-shipped, creating an infinite loop. The filter is always-on and cannot be disabled; you can add more excluded prefixes via `exclude_loggers=[...]`.
 
 ### Stdlib `logging` (FastAPI, Flask, Django, …)
 
@@ -180,6 +182,42 @@ LOGGING = {
 > # Optional: one event per HTTP request
 > # logging.getLogger("uvicorn.access").addHandler(axonpush_handler)
 > ```
+
+### AWS Lambda / Google Cloud Functions / Azure Functions
+
+Serverless containers are **frozen between invocations**, so the background worker thread can't drain the queue during the freeze. To guarantee delivery, call `handler.flush()` at the end of each invocation. The `@flush_after_invocation` decorator wraps your handler function and flushes in a `finally:` block:
+
+```python
+import os, logging
+from axonpush import AxonPush
+from axonpush.integrations.logging_handler import (
+    AxonPushLoggingHandler,
+    flush_after_invocation,
+)
+
+client = AxonPush(
+    api_key=os.environ["AXONPUSH_API_KEY"],
+    tenant_id=os.environ["AXONPUSH_TENANT_ID"],
+)
+handler = AxonPushLoggingHandler(client=client, channel_id=1, service_name="my-lambda")
+logging.getLogger().addHandler(handler)
+logging.getLogger().setLevel(logging.INFO)
+
+@flush_after_invocation(handler)
+def lambda_handler(event, context):
+    logging.info("processing event", extra={"event_id": event["id"]})
+    return {"statusCode": 200}
+```
+
+Performance stays good: `emit()` is still O(microseconds) (just a queue enqueue), and `flush()` runs **once per invocation** at the end — not once per log call. The handler auto-detects Lambda / GCF / Azure Functions at construction time and logs a one-time reminder to use `flush_after_invocation`.
+
+Pass `*handlers` to the decorator to flush multiple handlers in one wrap:
+
+```python
+@flush_after_invocation(logging_handler, otel_exporter, structlog_processor)
+def lambda_handler(event, context):
+    ...
+```
 
 ### Loguru
 
