@@ -2,7 +2,7 @@
 
 Python SDK for [AxonPush](https://axonpush.xyz) — real-time event infrastructure for AI agent systems.
 
-Publish, subscribe, trace, and deliver agent events with sub-100ms latency. Drop-in integrations for LangChain, OpenAI Agents SDK, Claude/Anthropic, and CrewAI.
+Publish, subscribe, trace, and deliver agent events with sub-100ms latency. Drop-in integrations for LangChain, OpenAI Agents SDK, Claude/Anthropic, CrewAI, and the Python observability stack (stdlib `logging`, Loguru, structlog, OpenTelemetry).
 
 ## Install
 
@@ -17,6 +17,16 @@ pip install axonpush[langchain]       # LangChain/LangGraph
 pip install axonpush[openai-agents]   # OpenAI Agents SDK
 pip install axonpush[anthropic]       # Claude/Anthropic
 pip install axonpush[crewai]          # CrewAI
+pip install axonpush[deepagents]      # LangChain Deep Agents
+```
+
+With observability integrations:
+
+```bash
+pip install axonpush                  # stdlib logging — no extra deps
+pip install axonpush[loguru]          # Loguru sink
+pip install axonpush[structlog]       # structlog processor
+pip install axonpush[otel]            # OpenTelemetry SpanExporter
 pip install axonpush[all]             # Everything
 ```
 
@@ -119,6 +129,118 @@ result = Crew(
     task_callback=callbacks.on_task_complete,
 ).kickoff()
 callbacks.on_crew_end(result)
+```
+
+## Logging & Observability
+
+Ship logs and traces from your existing Python observability stack to AxonPush. All four integrations emit OpenTelemetry-shaped payloads, so the events line up with anything else you're already sending to an OTel-compatible backend.
+
+> The stdlib `AxonPushLoggingHandler` installs a self-recursion filter by default that drops records from `httpx`, `httpcore`, and the SDK's own `axonpush` logger. Without it, each publish would trigger an `httpx` INFO log ("HTTP Request: POST /event 201 Created") that would get re-shipped, creating an infinite loop. The filter is always-on and cannot be disabled; you can add more excluded prefixes via `exclude_loggers=[...]`.
+
+### Stdlib `logging` (FastAPI, Flask, Django, …)
+
+```python
+import logging
+from axonpush import AxonPush
+from axonpush.integrations.logging_handler import AxonPushLoggingHandler
+
+client = AxonPush(api_key="ak_...", tenant_id="1")
+handler = AxonPushLoggingHandler(client=client, channel_id=1, service_name="my-api")
+
+logging.getLogger().addHandler(handler)
+logging.info("order created", extra={"order_id": 1234})
+```
+
+**Django** uses `LOGGING` dictConfig, which can't pass a pre-built client — so the handler also accepts credential kwargs (or reads `AXONPUSH_API_KEY` / `AXONPUSH_TENANT_ID` from the environment):
+
+```python
+# settings.py
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "axonpush": {
+            "class": "axonpush.integrations.logging_handler.AxonPushLoggingHandler",
+            "channel_id": 1,
+            "service_name": "my-django-app",
+            "exclude_loggers": ["django.db.backends"],  # optional
+        },
+    },
+    "root": {"handlers": ["axonpush"], "level": "INFO"},
+}
+```
+
+**FastAPI / Flask** — construct the handler with a pre-built `client=` in your app startup and attach it to `logging.getLogger()` (or `app.logger` for Flask).
+
+### Loguru
+
+```python
+from loguru import logger
+from axonpush import AxonPush
+from axonpush.integrations.loguru import create_axonpush_loguru_sink
+
+client = AxonPush(api_key="ak_...", tenant_id="1")
+sink = create_axonpush_loguru_sink(client=client, channel_id=1, service_name="my-api")
+logger.add(sink, serialize=True)  # serialize=True is required
+
+logger.error("connection refused", user_id=42)
+```
+
+### structlog
+
+```python
+import structlog
+from axonpush import AxonPush
+from axonpush.integrations.structlog import axonpush_structlog_processor
+
+client = AxonPush(api_key="ak_...", tenant_id="1")
+forwarder = axonpush_structlog_processor(client=client, channel_id=1, service_name="my-api")
+
+structlog.configure(
+    processors=[
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        forwarder,  # non-destructive — composes with other processors
+        structlog.processors.JSONRenderer(),
+    ],
+)
+structlog.get_logger().error("downstream timeout", endpoint="/search")
+```
+
+### Print capture (stdout/stderr → AxonPush)
+
+For AI agents that emit free-form output via `print()`. Patches `sys.stdout` / `sys.stderr` with a tee stream that still writes to the original console.
+
+```python
+from axonpush import AxonPush
+from axonpush.integrations.print_capture import setup_print_capture
+
+client = AxonPush(api_key="ak_...", tenant_id="1")
+handle = setup_print_capture(client, channel_id=1, agent_id="demo-agent")
+
+print("agent starting")  # forwarded to AxonPush as an agent.log event
+handle.unpatch()
+```
+
+### OpenTelemetry
+
+If your service is already instrumented with the OTel SDK, add `AxonPushSpanExporter` to your tracer provider and every span ships to AxonPush alongside whatever other backends you export to.
+
+```python
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from axonpush import AxonPush
+from axonpush.integrations.otel import AxonPushSpanExporter
+
+client = AxonPush(api_key="ak_...", tenant_id="1")
+provider = TracerProvider()
+provider.add_span_processor(
+    BatchSpanProcessor(
+        AxonPushSpanExporter(client=client, channel_id=1, service_name="my-api")
+    )
+)
+trace.set_tracer_provider(provider)
 ```
 
 ## Real-Time Subscriptions
