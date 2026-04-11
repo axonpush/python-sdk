@@ -172,6 +172,15 @@ LOGGING = {
 
 **FastAPI / Flask** — construct the handler with a pre-built `client=` in your app startup and attach it to `logging.getLogger()` (or `app.logger` for Flask).
 
+> **Uvicorn propagation trap (FastAPI/Starlette):** uvicorn's default `LOGGING_CONFIG` sets `uvicorn.propagate=False`, so records emitted on `logging.getLogger("uvicorn.error")` **never reach the root logger**. If you only attach the handler to root, your app's startup/request logs will be invisible to AxonPush. Also attach the handler to `uvicorn.error` directly:
+>
+> ```python
+> logging.getLogger().addHandler(axonpush_handler)
+> logging.getLogger("uvicorn.error").addHandler(axonpush_handler)
+> # Optional: one event per HTTP request
+> # logging.getLogger("uvicorn.access").addHandler(axonpush_handler)
+> ```
+
 ### Loguru
 
 ```python
