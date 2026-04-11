@@ -46,7 +46,7 @@ def test_sink_emits_app_log(mock_router):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         sink = create_axonpush_loguru_sink(
-            client=c, channel_id=5, service_name="loguru-svc"
+            client=c, channel_id=5, service_name="loguru-svc", mode="sync"
         )
         loguru_logger.add(sink, serialize=True)
         loguru_logger.error("connection refused")
@@ -70,7 +70,7 @@ def test_severity_mapping(mock_router):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         loguru_logger.add(
-            create_axonpush_loguru_sink(client=c, channel_id=5),
+            create_axonpush_loguru_sink(client=c, channel_id=5, mode="sync"),
             serialize=True,
             level="DEBUG",  # explicit so DEBUG isn't filtered by the sink
         )
@@ -98,7 +98,7 @@ def test_bound_extra_becomes_attributes(mock_router):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         loguru_logger.add(
-            create_axonpush_loguru_sink(client=c, channel_id=5),
+            create_axonpush_loguru_sink(client=c, channel_id=5, mode="sync"),
             serialize=True,
         )
         loguru_logger.bind(user_id=42, request_id="abc").info("hello")
@@ -112,7 +112,7 @@ def test_agent_source(mock_router):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         loguru_logger.add(
-            create_axonpush_loguru_sink(client=c, channel_id=5, source="agent"),
+            create_axonpush_loguru_sink(client=c, channel_id=5, source="agent", mode="sync"),
             serialize=True,
         )
         loguru_logger.info("agent log")
@@ -122,7 +122,7 @@ def test_agent_source(mock_router):
 def test_invalid_source_rejected():
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         with pytest.raises(ValueError, match="source must be"):
-            create_axonpush_loguru_sink(client=c, channel_id=5, source="bogus")
+            create_axonpush_loguru_sink(client=c, channel_id=5, source="bogus", mode="sync")
 
 
 def test_sink_swallows_publish_errors(mock_router):
@@ -132,7 +132,7 @@ def test_sink_swallows_publish_errors(mock_router):
         api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=False
     ) as c:
         loguru_logger.add(
-            create_axonpush_loguru_sink(client=c, channel_id=5),
+            create_axonpush_loguru_sink(client=c, channel_id=5, mode="sync"),
             serialize=True,
         )
         loguru_logger.error("should not crash")

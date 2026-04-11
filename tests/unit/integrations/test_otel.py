@@ -40,7 +40,7 @@ def test_exporter_publishes_app_span_event(mock_router):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         exporter = AxonPushSpanExporter(
-            client=c, channel_id=5, service_name="otel-svc"
+            client=c, channel_id=5, service_name="otel-svc", mode="sync"
         )
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
@@ -78,7 +78,7 @@ def test_exporter_publishes_app_span_event(mock_router):
 def test_exporter_returns_success_on_happy_path(mock_router):
     mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        exporter = AxonPushSpanExporter(client=c, channel_id=5)
+        exporter = AxonPushSpanExporter(client=c, channel_id=5, mode="sync")
         provider = TracerProvider()
         tracer = provider.get_tracer(__name__)
         with tracer.start_as_current_span("op") as span:
@@ -101,7 +101,7 @@ def test_exporter_returns_success_when_per_span_publish_fails(mock_router):
     with AxonPush(
         api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=False
     ) as c:
-        exporter = AxonPushSpanExporter(client=c, channel_id=5)
+        exporter = AxonPushSpanExporter(client=c, channel_id=5, mode="sync")
         provider = TracerProvider()
         tracer = provider.get_tracer(__name__)
         with tracer.start_as_current_span("op") as span:
@@ -116,7 +116,7 @@ def test_exporter_returns_failure_when_export_loop_crashes(mock_router):
     iterable input → FAILURE, not a crash.
     """
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        exporter = AxonPushSpanExporter(client=c, channel_id=5)
+        exporter = AxonPushSpanExporter(client=c, channel_id=5, mode="sync")
         # Passing something that raises on iteration
         class _BadSpans:
             def __iter__(self):
@@ -128,7 +128,7 @@ def test_exporter_returns_failure_when_export_loop_crashes(mock_router):
 def test_parent_span_id_propagated(mock_router):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        exporter = AxonPushSpanExporter(client=c, channel_id=5)
+        exporter = AxonPushSpanExporter(client=c, channel_id=5, mode="sync")
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
         tracer = provider.get_tracer(__name__)
@@ -150,11 +150,11 @@ def test_parent_span_id_propagated(mock_router):
 
 def test_force_flush_returns_true(mock_router):
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        exporter = AxonPushSpanExporter(client=c, channel_id=5)
+        exporter = AxonPushSpanExporter(client=c, channel_id=5, mode="sync")
         assert exporter.force_flush() is True
 
 
 def test_shutdown_is_noop(mock_router):
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        exporter = AxonPushSpanExporter(client=c, channel_id=5)
+        exporter = AxonPushSpanExporter(client=c, channel_id=5, mode="sync")
         assert exporter.shutdown() is None

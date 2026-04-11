@@ -53,7 +53,7 @@ class TestLoggingHandlerPayload:
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
             handler = AxonPushLoggingHandler(
-                client=c, channel_id=5, service_name="myapp"
+                client=c, channel_id=5, service_name="myapp", mode="sync"
             )
             isolated_logger.addHandler(handler)
             isolated_logger.error("connection refused")
@@ -79,7 +79,7 @@ class TestLoggingHandlerPayload:
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
             isolated_logger.addHandler(
-                AxonPushLoggingHandler(client=c, channel_id=5)
+                AxonPushLoggingHandler(client=c, channel_id=5, mode="sync")
             )
             cases = [
                 (isolated_logger.debug, "d", 5, "DEBUG"),
@@ -106,7 +106,7 @@ class TestLoggingHandlerPayload:
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
             isolated_logger.addHandler(
-                AxonPushLoggingHandler(client=c, channel_id=5)
+                AxonPushLoggingHandler(client=c, channel_id=5, mode="sync")
             )
             isolated_logger.error("auth fail", extra={"user_id": 42, "ip": "1.2.3.4"})
 
@@ -124,7 +124,7 @@ class TestLoggingHandlerPayload:
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
             isolated_logger.addHandler(
-                AxonPushLoggingHandler(client=c, channel_id=5, source="agent")
+                AxonPushLoggingHandler(client=c, channel_id=5, source="agent", mode="sync")
             )
             isolated_logger.info("agent thinking")
         assert _last_body(route)["eventType"] == "agent.log"
@@ -132,7 +132,7 @@ class TestLoggingHandlerPayload:
     def test_invalid_source_rejected(self):
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
             with pytest.raises(ValueError, match="source must be"):
-                AxonPushLoggingHandler(client=c, channel_id=5, source="bogus")
+                AxonPushLoggingHandler(client=c, channel_id=5, source="bogus", mode="sync")
 
     def test_emit_never_raises(self, mock_router, isolated_logger):
         """Per logging.Handler convention, emit() must swallow all exceptions
@@ -144,7 +144,7 @@ class TestLoggingHandlerPayload:
             base_url=BASE_URL,
             fail_open=False,  # would normally raise APIConnectionError
         ) as c:
-            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler = AxonPushLoggingHandler(client=c, channel_id=5, mode="sync")
             # Silence handleError's noisy stderr fallback for this test
             handler.handleError = lambda record: None  # type: ignore[method-assign]
             isolated_logger.addHandler(handler)
@@ -161,7 +161,7 @@ class TestLoggingHandlerPayload:
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
             isolated_logger.addHandler(
-                AxonPushLoggingHandler(client=c, channel_id=5)
+                AxonPushLoggingHandler(client=c, channel_id=5, mode="sync")
             )
             isolated_logger.info("plain")
         body = _last_body(route)
@@ -194,7 +194,7 @@ class TestSelfRecursionFilter:
     def test_httpx_records_are_dropped(self, mock_router):
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler = AxonPushLoggingHandler(client=c, channel_id=5, mode="sync")
             handler.handle(_make_record("httpx"))
             handler.handle(_make_record("httpx._client"))
         assert not route.called
@@ -202,7 +202,7 @@ class TestSelfRecursionFilter:
     def test_httpcore_records_are_dropped(self, mock_router):
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler = AxonPushLoggingHandler(client=c, channel_id=5, mode="sync")
             handler.handle(_make_record("httpcore.connection"))
             handler.handle(_make_record("httpcore.http11"))
         assert not route.called
@@ -212,7 +212,7 @@ class TestSelfRecursionFilter:
         feedback when ``_http.py`` / ``client.py`` log fail-open warnings."""
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler = AxonPushLoggingHandler(client=c, channel_id=5, mode="sync")
             handler.handle(_make_record("axonpush"))
         assert not route.called
 
@@ -224,7 +224,7 @@ class TestSelfRecursionFilter:
         ``axonpush.plugins.foo`` / ``axonpush.test.bar`` pass through."""
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler = AxonPushLoggingHandler(client=c, channel_id=5, mode="sync")
             handler.handle(_make_record("axonpush.plugins.foo"))
             handler.handle(_make_record("axonpush.test.bar"))
         assert route.call_count == 2
@@ -232,7 +232,7 @@ class TestSelfRecursionFilter:
     def test_user_records_still_flow_through(self, mock_router):
         route = mock_router.post("/event").mock(return_value=_ack())
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            handler = AxonPushLoggingHandler(client=c, channel_id=5)
+            handler = AxonPushLoggingHandler(client=c, channel_id=5, mode="sync")
             handler.handle(_make_record("my_app.users"))
         assert route.call_count == 1
 
@@ -289,6 +289,7 @@ class TestDictConfigConstructor:
             base_url=BASE_URL,
             channel_id=5,
             service_name="dictconfig-test",
+            mode="sync",
         )
         isolated_logger.addHandler(handler)
         isolated_logger.info("hello")
@@ -303,7 +304,7 @@ class TestDictConfigConstructor:
         monkeypatch.setenv("AXONPUSH_TENANT_ID", TENANT_ID)
         monkeypatch.setenv("AXONPUSH_BASE_URL", BASE_URL)
         route = mock_router.post("/event").mock(return_value=_ack())
-        handler = AxonPushLoggingHandler(channel_id=5)
+        handler = AxonPushLoggingHandler(channel_id=5, mode="sync")
         isolated_logger.addHandler(handler)
         isolated_logger.info("env-test")
         assert route.called
@@ -313,7 +314,7 @@ class TestDictConfigConstructor:
         monkeypatch.delenv("AXONPUSH_TENANT_ID", raising=False)
         monkeypatch.delenv("AXONPUSH_BASE_URL", raising=False)
         with pytest.raises(ValueError, match="provide either client="):
-            AxonPushLoggingHandler(channel_id=5)
+            AxonPushLoggingHandler(channel_id=5, mode="sync")
 
     def test_client_and_credentials_conflict_raises(self):
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
@@ -323,6 +324,7 @@ class TestDictConfigConstructor:
                     api_key="ak_other",
                     tenant_id="2",
                     channel_id=5,
+                    mode="sync",
                 )
 
     def test_via_logging_dict_config(self, mock_router, monkeypatch):
@@ -349,6 +351,7 @@ class TestDictConfigConstructor:
                         "class": "axonpush.integrations.logging_handler.AxonPushLoggingHandler",
                         "channel_id": 5,
                         "service_name": "django-style",
+                        "mode": "sync",
                     },
                 },
                 "loggers": {

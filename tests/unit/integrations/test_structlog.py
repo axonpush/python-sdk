@@ -48,7 +48,7 @@ def test_processor_publishes_event(mock_router):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         forwarder = axonpush_structlog_processor(
-            client=c, channel_id=5, service_name="structlog-svc"
+            client=c, channel_id=5, service_name="structlog-svc", mode="sync"
         )
         structlog.configure(
             processors=[
@@ -83,7 +83,7 @@ def test_processor_is_non_destructive(mock_router):
     """
     mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        forwarder = axonpush_structlog_processor(client=c, channel_id=5)
+        forwarder = axonpush_structlog_processor(client=c, channel_id=5, mode="sync")
         event_dict = {
             "event": "hello",
             "level": "info",
@@ -103,7 +103,7 @@ def test_severity_from_method_name_when_level_missing(mock_router):
     """If add_log_level isn't in the chain, fall back to the method name."""
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        forwarder = axonpush_structlog_processor(client=c, channel_id=5)
+        forwarder = axonpush_structlog_processor(client=c, channel_id=5, mode="sync")
         forwarder(None, "warning", {"event": "stale cache"})
     body = _last_body(route)
     assert body["payload"]["severityText"] == "WARN"
@@ -114,7 +114,7 @@ def test_agent_source(mock_router):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         forwarder = axonpush_structlog_processor(
-            client=c, channel_id=5, source="agent"
+            client=c, channel_id=5, source="agent", mode="sync"
         )
         forwarder(None, "info", {"event": "agent log"})
     assert _last_body(route)["eventType"] == "agent.log"
@@ -123,7 +123,7 @@ def test_agent_source(mock_router):
 def test_invalid_source_rejected():
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         with pytest.raises(ValueError, match="source must be"):
-            axonpush_structlog_processor(client=c, channel_id=5, source="bogus")
+            axonpush_structlog_processor(client=c, channel_id=5, source="bogus", mode="sync")
 
 
 def test_processor_swallows_publish_errors(mock_router):
@@ -131,7 +131,7 @@ def test_processor_swallows_publish_errors(mock_router):
     with AxonPush(
         api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=False
     ) as c:
-        forwarder = axonpush_structlog_processor(client=c, channel_id=5)
+        forwarder = axonpush_structlog_processor(client=c, channel_id=5, mode="sync")
         # Should not raise even on transport failure
         result = forwarder(None, "error", {"event": "boom"})
     assert result == {"event": "boom"}

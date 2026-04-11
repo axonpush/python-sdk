@@ -36,7 +36,7 @@ Usage::
 from __future__ import annotations
 
 import logging as _stdlib_logging
-from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING
+from typing import Any, Dict, Literal, Optional, Sequence, TYPE_CHECKING
 
 try:
     from opentelemetry.sdk.trace import ReadableSpan
@@ -49,10 +49,19 @@ except ImportError:
 
 from axonpush._tracing import get_or_create_trace
 from axonpush.integrations._otel_payload import _stringify_values
+from axonpush.integrations._publisher import (
+    BackgroundPublisher,
+    DEFAULT_QUEUE_SIZE,
+    DEFAULT_SHUTDOWN_TIMEOUT_S,
+    detect_serverless,
+    flush_after_invocation,
+)
 from axonpush.models.events import EventType
 
 if TYPE_CHECKING:
     from axonpush.client import AsyncAxonPush, AxonPush
+
+__all__ = ["AxonPushSpanExporter", "flush_after_invocation"]
 
 _internal_logger = _stdlib_logging.getLogger("axonpush")
 
@@ -68,7 +77,16 @@ class AxonPushSpanExporter(SpanExporter):
         service_name: Optional[str] = None,
         service_version: Optional[str] = None,
         environment: Optional[str] = None,
+        mode: Optional[Literal["background", "sync"]] = None,
+        queue_size: int = DEFAULT_QUEUE_SIZE,
+        shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT_S,
     ) -> None:
+        resolved_mode = mode or "background"
+        if resolved_mode not in ("background", "sync"):
+            raise ValueError(
+                f"mode must be 'background' or 'sync', got {resolved_mode!r}"
+            )
+
         self._client = client
         self._channel_id = channel_id
         self._trace = get_or_create_trace()
@@ -82,6 +100,25 @@ class AxonPushSpanExporter(SpanExporter):
             resource["deployment.environment"] = environment
         self._resource_override = resource
 
+        if resolved_mode == "background":
+            self._publisher: Optional[BackgroundPublisher] = BackgroundPublisher(
+                client,
+                queue_size=queue_size,
+                shutdown_timeout=shutdown_timeout,
+            )
+        else:
+            self._publisher = None
+
+        serverless = detect_serverless()
+        if serverless is not None and self._publisher is not None:
+            _internal_logger.info(
+                "AxonPush detected %s. Call exporter.flush() at the end of "
+                "each invocation (or wrap your handler with "
+                "axonpush.integrations.otel.flush_after_invocation) to "
+                "avoid losing spans when the container is frozen.",
+                serverless,
+            )
+
     def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
         try:
             for span in spans:
@@ -91,10 +128,18 @@ class AxonPushSpanExporter(SpanExporter):
             _internal_logger.warning("AxonPush OTel exporter failed: %s", exc)
             return SpanExportResult.FAILURE
 
-    def shutdown(self) -> None:
-        return None
+    def flush(self, timeout: Optional[float] = None) -> None:
+        """Block until queued spans are published, or until timeout."""
+        if self._publisher is not None:
+            self._publisher.flush(timeout)
 
-    def force_flush(self, timeout_millis: int = 30000) -> bool:  # noqa: ARG002
+    def shutdown(self) -> None:
+        if self._publisher is not None:
+            self._publisher.close()
+            self._publisher = None
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        self.flush(timeout=timeout_millis / 1000.0)
         return True
 
     def _export_one(self, span: ReadableSpan) -> None:
@@ -183,18 +228,23 @@ class AxonPushSpanExporter(SpanExporter):
                 "version": getattr(scope, "version", None),
             }
 
-        try:
-            result = self._client.events.publish(
-                identifier=span.name,
-                payload=payload,
-                channel_id=self._channel_id,
-                trace_id=trace_id,
-                span_id=span_id,
-                event_type=EventType.APP_SPAN,
-                metadata={"framework": "opentelemetry"},
-            )
-            import asyncio
+        publish_kwargs: Dict[str, Any] = {
+            "identifier": span.name,
+            "payload": payload,
+            "channel_id": self._channel_id,
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "event_type": EventType.APP_SPAN,
+            "metadata": {"framework": "opentelemetry"},
+        }
 
+        if self._publisher is not None:
+            self._publisher.submit(publish_kwargs)
+            return
+
+        try:
+            result = self._client.events.publish(**publish_kwargs)
+            import asyncio
             if asyncio.iscoroutine(result):
                 try:
                     loop = asyncio.get_running_loop()

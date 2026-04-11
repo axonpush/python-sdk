@@ -60,7 +60,7 @@ async def test_logging_handler_with_async_client_schedules_publish(mock_router):
         logger.setLevel(logging.DEBUG)
         logger.propagate = False
         logger.addHandler(
-            AxonPushLoggingHandler(client=client, channel_id=5, service_name="async")
+            AxonPushLoggingHandler(client=client, channel_id=5, service_name="async", mode="sync")
         )
         try:
             logger.error("from async path")
@@ -91,7 +91,7 @@ async def test_loguru_sink_with_async_client_schedules_publish(mock_router):
             api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL
         ) as client:
             loguru_logger.add(
-                create_axonpush_loguru_sink(client=client, channel_id=5),
+                create_axonpush_loguru_sink(client=client, channel_id=5, mode="sync"),
                 serialize=True,
             )
             loguru_logger.error("loguru async")
@@ -116,7 +116,7 @@ async def test_structlog_processor_with_async_client_schedules_publish(mock_rout
         async with AsyncAxonPush(
             api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL
         ) as client:
-            forwarder = axonpush_structlog_processor(client=client, channel_id=5)
+            forwarder = axonpush_structlog_processor(client=client, channel_id=5, mode="sync")
             forwarder(None, "error", {"event": "structlog async"})
             await _drain_loop()
     finally:
@@ -163,7 +163,7 @@ async def test_otel_exporter_with_async_client_schedules_publish(mock_router):
     async with AsyncAxonPush(
         api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL
     ) as client:
-        exporter = AxonPushSpanExporter(client=client, channel_id=5)
+        exporter = AxonPushSpanExporter(client=client, channel_id=5, mode="sync")
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
         tracer = provider.get_tracer(__name__)
@@ -199,7 +199,7 @@ async def test_no_running_loop_swallows_runtime_error(mock_router):
         logger.setLevel(logging.DEBUG)
         logger.propagate = False
         logger.addHandler(
-            AxonPushLoggingHandler(client=client, channel_id=5)
+            AxonPushLoggingHandler(client=client, channel_id=5, mode="sync")
         )
 
         crashed: list[BaseException] = []
