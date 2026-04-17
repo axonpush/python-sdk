@@ -18,6 +18,7 @@ pip install axonpush[openai-agents]   # OpenAI Agents SDK
 pip install axonpush[anthropic]       # Claude/Anthropic
 pip install axonpush[crewai]          # CrewAI
 pip install axonpush[deepagents]      # LangChain Deep Agents
+pip install axonpush[rq]              # Redis Queue backend (python-rq)
 ```
 
 With observability integrations:
@@ -73,17 +74,26 @@ async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
 ### LangChain / LangGraph
 
 ```python
+# Sync (default — background thread)
 from axonpush import AxonPush
 from axonpush.integrations.langchain import AxonPushCallbackHandler
 
 client = AxonPush(api_key="ak_...", tenant_id="1")
 handler = AxonPushCallbackHandler(client, channel_id=1, agent_id="my-agent")
-
-# All chain/tool/LLM events are published automatically
 chain.invoke({"input": "..."}, config={"callbacks": [handler]})
+
+# Async (default — fire-and-forget tasks, zero event-loop blocking)
+from axonpush import AsyncAxonPush
+from axonpush.integrations.langchain import get_langchain_handler
+
+client = AsyncAxonPush(api_key="ak_...", tenant_id="1")
+handler = get_langchain_handler(client, channel_id=1, agent_id="my-agent")
+await chain.ainvoke({"input": "..."}, config={"callbacks": [handler]})
 ```
 
 ### OpenAI Agents SDK
+
+Events are published asynchronously via fire-and-forget tasks by default — no event-loop blocking.
 
 ```python
 from axonpush import AsyncAxonPush
@@ -93,6 +103,7 @@ client = AsyncAxonPush(api_key="ak_...", tenant_id="1")
 hooks = AxonPushRunHooks(client, channel_id=1)
 
 result = await Runner.run(agent, input="...", hooks=hooks)
+await hooks.flush()  # optional — drain pending publishes before exit
 ```
 
 ### Claude / Anthropic
@@ -131,11 +142,49 @@ result = Crew(
 callbacks.on_crew_end(result)
 ```
 
+## Publishing Modes
+
+All integrations accept a `mode` parameter to control how events reach AxonPush:
+
+| Mode | Backend | Best for |
+|------|---------|----------|
+| `"background"` (default) | In-process queue (sync) or `asyncio.create_task` (async) | Most apps — zero config |
+| `"rq"` | Redis Queue ([python-rq](https://python-rq.org/)) | Durable delivery, serverless, high volume |
+| `"sync"` | Direct HTTP call | Debugging, tests |
+
+### Redis Queue mode
+
+Offload event publishing to a separate worker process backed by Redis. Events survive app restarts and are retried on transient failures.
+
+```bash
+pip install axonpush[rq]
+```
+
+```python
+from redis import Redis
+from axonpush import AxonPush
+from axonpush.integrations.langchain import AxonPushCallbackHandler
+
+client = AxonPush(api_key="ak_...", tenant_id="1")
+handler = AxonPushCallbackHandler(
+    client, channel_id=1,
+    mode="rq",
+    rq_options={"redis_conn": Redis(), "queue_name": "axonpush"},
+)
+chain.invoke({"input": "..."}, config={"callbacks": [handler]})
+```
+
+Start an rq worker to process the queue:
+
+```bash
+rq worker axonpush
+```
+
 ## Logging & Observability
 
 Ship logs and traces from your existing Python observability stack to AxonPush. All four integrations emit OpenTelemetry-shaped payloads, so the events line up with anything else you're already sending to an OTel-compatible backend.
 
-> **Non-blocking by default (v0.0.5+).** All four integrations submit publishes onto a bounded in-memory queue and drain them from a single background daemon thread, so `logger.info(...)` stays O(microseconds) on the caller's thread — no HTTP round-trip on the hot path. The queue is bounded (default 1000 records); overflow drops the oldest with a rate-limited warning. Call `handler.flush(timeout=)` or use `@flush_after_invocation(handler)` at known checkpoints (end of a Lambda invocation, end of a test) to guarantee delivery. Pass `mode="sync"` on any integration if you need blocking publishes (one-shot scripts, deterministic tests). Fork-safe via `os.register_at_fork` — Gunicorn `--preload` / Celery `--pool=prefork` workers get a fresh queue + thread after fork.
+> **Non-blocking by default (v0.0.7+).** Sync integrations use a bounded in-memory queue + daemon thread. Async integrations use `asyncio.create_task()` fire-and-forget with backpressure (max 1000 pending tasks). For durable delivery, use `mode="rq"` to offload publishing to a Redis-backed worker process. Call `handler.flush(timeout=)` or use `@flush_after_invocation(handler)` at known checkpoints (end of a Lambda invocation, end of a test) to guarantee delivery. Pass `mode="sync"` on any integration if you need blocking publishes (one-shot scripts, deterministic tests). Fork-safe via `os.register_at_fork` — Gunicorn `--preload` / Celery `--pool=prefork` workers get a fresh queue + thread after fork.
 
 > **Self-recursion filter.** The stdlib `AxonPushLoggingHandler` installs a filter by default that drops records from `httpx`, `httpcore`, and the SDK's own `axonpush` logger. Without it, each publish would trigger an `httpx` INFO log ("HTTP Request: POST /event 201 Created") that would get re-shipped, creating an infinite loop. The filter is always-on and cannot be disabled; you can add more excluded prefixes via `exclude_loggers=[...]`.
 
