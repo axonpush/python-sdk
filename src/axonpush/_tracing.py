@@ -23,7 +23,8 @@ class TraceContext:
     def next_span_id(self) -> str:
         with self._lock:
             self._span_counter += 1
-            return f"sp_{self.trace_id[3:]}_{self._span_counter:04d}"
+            counter = self._span_counter
+        return f"sp_{self.trace_id[3:]}_{counter:04d}"
 
 
 def get_or_create_trace(trace_id: str | None = None) -> TraceContext:

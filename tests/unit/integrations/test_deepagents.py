@@ -34,6 +34,7 @@ def handler(mock_client):
         channel_id=42,
         agent_id="test-agent",
         trace_id="tr_test1234567890",
+        mode="sync",
     )
 
 
@@ -238,6 +239,7 @@ class TestDeepAgentMetadata:
             mock_client,
             channel_id=1,
             metadata={"custom_key": "custom_val"},
+            mode="sync",
         )
         h.on_chain_start({"name": "test"}, {}, run_id=uuid4())
         meta = mock_client.events.publish.call_args.kwargs["metadata"]

@@ -44,6 +44,7 @@ from axonpush.integrations._publisher import (
     detect_serverless,
     flush_after_invocation,
 )
+from axonpush.integrations._utils import build_resource, fire_and_forget
 from axonpush.models.events import EventType
 
 if TYPE_CHECKING:
@@ -163,14 +164,7 @@ class AxonPushLoggingHandler(logging.Handler):
         self._source = source
         self._agent_id = agent_id
 
-        resource: Dict[str, Any] = {}
-        if service_name is not None:
-            resource["service.name"] = service_name
-        if service_version is not None:
-            resource["service.version"] = service_version
-        if environment is not None:
-            resource["deployment.environment"] = environment
-        self._resource = resource or None
+        self._resource = build_resource(service_name, service_version, environment)
 
         # Install the always-on self-recursion filter plus any user-supplied
         # logger-name prefixes. Additive — defaults cannot be disabled.
@@ -304,13 +298,7 @@ class AxonPushLoggingHandler(logging.Handler):
                 return
 
             result = self._client.events.publish(**publish_kwargs)
-            import asyncio
-            if asyncio.iscoroutine(result):
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(result)
-                except RuntimeError:
-                    pass
+            fire_and_forget(result)
         except Exception:
             try:
                 self.handleError(record)

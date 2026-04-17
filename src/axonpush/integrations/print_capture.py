@@ -1,33 +1,19 @@
-"""Capture print() and stdout/stderr writes and forward them to AxonPush.
-
-Use this for AI agent projects where the agent (or its tools) emits free-form
-output via ``print()``. The wizard wires this up automatically for detected
-agent projects so that any ``print`` call shows up in the trace timeline.
-
-Stdlib only — no extra dependencies.
-
-Usage::
-
-    from axonpush import AxonPush
-    from axonpush.integrations.print_capture import setup_print_capture
-
-    client = AxonPush(api_key="ak_...", tenant_id="1")
-    handle = setup_print_capture(client, channel_id=1)
-
-    print("agent started")  # forwarded to AxonPush as an agent.log event
-
-    handle.unpatch()  # restore the original sys.stdout/sys.stderr
-"""
 from __future__ import annotations
 
 import logging
 import sys
 import time
-from dataclasses import dataclass
-from typing import IO, Any, Optional, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import IO, Any, Dict, Literal, Optional, TYPE_CHECKING
 
 from axonpush._tracing import get_or_create_trace
 from axonpush.integrations._otel_payload import build_log_payload
+from axonpush.integrations._publisher import (
+    BackgroundPublisher,
+    DEFAULT_QUEUE_SIZE,
+    DEFAULT_SHUTDOWN_TIMEOUT_S,
+)
+from axonpush.integrations._utils import fire_and_forget
 from axonpush.models.events import EventType
 
 if TYPE_CHECKING:
@@ -38,22 +24,23 @@ _logger = logging.getLogger("axonpush")
 
 @dataclass
 class PrintCaptureHandle:
-    """Returned by ``setup_print_capture()``. Call ``unpatch()`` to restore stdio."""
-
     _orig_stdout: IO[str]
     _orig_stderr: IO[str]
+    _publisher: Optional[BackgroundPublisher] = field(default=None, repr=False)
 
     def unpatch(self) -> None:
         sys.stdout = self._orig_stdout
         sys.stderr = self._orig_stderr
+        if self._publisher is not None:
+            self._publisher.close()
+            self._publisher = None
+
+    def flush(self, timeout: Optional[float] = None) -> None:
+        if self._publisher is not None:
+            self._publisher.flush(timeout)
 
 
 class _AxonPushTeeStream:
-    """A file-like stream that writes to BOTH the original stream AND AxonPush.
-
-    Buffers partial lines and only emits a log event when a newline is seen
-    so we don't fragment the output across multiple events.
-    """
 
     def __init__(
         self,
@@ -65,22 +52,21 @@ class _AxonPushTeeStream:
         source: str,
         stream_name: str,
         service_name: Optional[str],
+        publisher: Optional[BackgroundPublisher] = None,
     ) -> None:
         self._original = original
         self._client = client
         self._channel_id = channel_id
         self._agent_id = agent_id
         self._source = source
-        self._stream_name = stream_name  # "stdout" or "stderr"
+        self._stream_name = stream_name
         self._service_name = service_name
+        self._publisher = publisher
         self._buffer = ""
         self._trace = get_or_create_trace()
 
     def write(self, data: str) -> int:
-        # Always pass through to the original stream first.
         result = self._original.write(data)
-
-        # Buffer until we see a newline; then emit one event per line.
         try:
             self._buffer += data
             while "\n" in self._buffer:
@@ -89,7 +75,6 @@ class _AxonPushTeeStream:
                     self._emit(line)
         except Exception as exc:
             _logger.warning("AxonPush print capture failed: %s", exc)
-
         return result
 
     def flush(self) -> None:
@@ -102,18 +87,15 @@ class _AxonPushTeeStream:
             self._buffer = ""
 
     def __getattr__(self, name: str) -> Any:
-        # Delegate any other attribute access to the original stream so the
-        # tee is a drop-in replacement (isatty, fileno, encoding, etc.)
         return getattr(self._original, name)
 
     def _emit(self, line: str) -> None:
-        # stderr → ERROR severity by default; stdout → INFO
         if self._stream_name == "stderr":
             severity_number, severity_text = (17, "ERROR")
         else:
             severity_number, severity_text = (9, "INFO")
 
-        attributes = {
+        attributes: Dict[str, Any] = {
             "log.iostream": self._stream_name,
             "log.source": "print",
         }
@@ -130,32 +112,24 @@ class _AxonPushTeeStream:
 
         event_type = EventType.APP_LOG if self._source == "app" else EventType.AGENT_LOG
 
-        try:
-            # Use the events.publish API; both sync and async clients expose it.
-            # For the async client, the call returns a coroutine — we ignore the
-            # result (fire-and-forget). The user is responsible for keeping
-            # an event loop running if they're using AsyncAxonPush.
-            result = self._client.events.publish(
-                identifier="print",
-                payload=payload,
-                channel_id=self._channel_id,
-                agent_id=self._agent_id,
-                trace_id=self._trace.trace_id,
-                span_id=self._trace.next_span_id(),
-                event_type=event_type,
-                metadata={"framework": "print-capture"},
-            )
-            # Async client returns a coroutine — schedule it on the running loop
-            # if there is one, otherwise drop (the caller doesn't await us).
-            import asyncio
+        publish_kwargs: Dict[str, Any] = {
+            "identifier": "print",
+            "payload": payload,
+            "channel_id": self._channel_id,
+            "agent_id": self._agent_id,
+            "trace_id": self._trace.trace_id,
+            "span_id": self._trace.next_span_id(),
+            "event_type": event_type,
+            "metadata": {"framework": "print-capture"},
+        }
 
-            if asyncio.iscoroutine(result):
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(result)
-                except RuntimeError:
-                    # No running loop; nothing we can do here.
-                    pass
+        if self._publisher is not None:
+            self._publisher.submit(publish_kwargs)
+            return
+
+        try:
+            result = self._client.events.publish(**publish_kwargs)
+            fire_and_forget(result)
         except Exception as exc:
             _logger.warning("AxonPush print capture publish failed: %s", exc)
 
@@ -167,36 +141,35 @@ def setup_print_capture(
     agent_id: Optional[str] = None,
     source: str = "agent",
     service_name: Optional[str] = None,
+    mode: Optional[Literal["background", "sync"]] = None,
+    queue_size: int = DEFAULT_QUEUE_SIZE,
+    shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT_S,
 ) -> PrintCaptureHandle:
-    """Patch ``sys.stdout`` / ``sys.stderr`` to forward writes to AxonPush.
-
-    :param source: ``"agent"`` (default) → events tagged ``agent.log``;
-                   ``"app"``             → events tagged ``app.log``.
-    :param service_name: optional ``service.name`` resource attribute to
-                         attach to every captured line.
-    """
     if source not in ("agent", "app"):
         raise ValueError(f"source must be 'agent' or 'app', got {source!r}")
+
+    resolved_mode = mode or "background"
+    publisher: Optional[BackgroundPublisher] = None
+    if resolved_mode == "background":
+        publisher = BackgroundPublisher(
+            client, queue_size=queue_size, shutdown_timeout=shutdown_timeout,
+        )
 
     orig_stdout, orig_stderr = sys.stdout, sys.stderr
 
     sys.stdout = _AxonPushTeeStream(
-        orig_stdout,
-        client,
-        channel_id,
-        agent_id=agent_id,
-        source=source,
-        stream_name="stdout",
-        service_name=service_name,
+        orig_stdout, client, channel_id,
+        agent_id=agent_id, source=source, stream_name="stdout",
+        service_name=service_name, publisher=publisher,
     )
     sys.stderr = _AxonPushTeeStream(
-        orig_stderr,
-        client,
-        channel_id,
-        agent_id=agent_id,
-        source=source,
-        stream_name="stderr",
-        service_name=service_name,
+        orig_stderr, client, channel_id,
+        agent_id=agent_id, source=source, stream_name="stderr",
+        service_name=service_name, publisher=publisher,
     )
 
-    return PrintCaptureHandle(_orig_stdout=orig_stdout, _orig_stderr=orig_stderr)
+    return PrintCaptureHandle(
+        _orig_stdout=orig_stdout,
+        _orig_stderr=orig_stderr,
+        _publisher=publisher,
+    )

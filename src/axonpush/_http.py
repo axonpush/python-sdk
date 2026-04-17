@@ -21,6 +21,12 @@ from axonpush.exceptions import (
 
 logger = logging.getLogger("axonpush")
 
+_DEFAULT_POOL_LIMITS = httpx.Limits(
+    max_connections=100,
+    max_keepalive_connections=20,
+    keepalive_expiry=30.0,
+)
+
 _FAIL_OPEN_SENTINEL = object()
 
 
@@ -75,6 +81,7 @@ class SyncTransport:
             base_url=auth.base_url,
             headers=auth.headers(),
             timeout=httpx.Timeout(timeout, connect=5.0),
+            limits=_DEFAULT_POOL_LIMITS,
         )
 
     def request(
@@ -126,6 +133,7 @@ class AsyncTransport:
             base_url=auth.base_url,
             headers=auth.headers(),
             timeout=httpx.Timeout(timeout, connect=5.0),
+            limits=_DEFAULT_POOL_LIMITS,
         )
 
     async def request(

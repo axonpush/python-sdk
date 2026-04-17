@@ -1,14 +1,3 @@
-"""Shared background publisher for the stdlib logging, loguru, structlog,
-and OpenTelemetry integrations.
-
-Keeps ``emit()`` on the caller's thread O(microseconds) by pushing publish
-kwargs onto a bounded queue that a single daemon worker thread drains in
-the background. Provides ``flush()`` / ``close()`` for deterministic
-delivery at known checkpoints (Lambda invocation end, atexit, tests).
-
-Fork-safe via ``os.register_at_fork``. Serverless detection is
-informational only — the publisher behaves identically regardless.
-"""
 from __future__ import annotations
 
 import atexit
@@ -29,7 +18,8 @@ _internal_logger = logging.getLogger("axonpush")
 DEFAULT_QUEUE_SIZE = 1000
 DEFAULT_SHUTDOWN_TIMEOUT_S = 2.0
 DROP_WARNING_INTERVAL_S = 10.0
-_IDLE_POLL_INTERVAL_S = 0.005
+
+_SENTINEL = object()
 
 _SERVERLESS_MARKERS = (
     ("AWS_LAMBDA_FUNCTION_NAME", "AWS Lambda"),
@@ -39,11 +29,6 @@ _SERVERLESS_MARKERS = (
 
 
 def detect_serverless() -> Optional[str]:
-    """Return a human-readable FaaS platform name if detected, else ``None``.
-
-    Used by integrations to emit a one-time informational reminder about
-    calling ``flush()`` per invocation. Never changes behavior by itself.
-    """
     for env_var, name in _SERVERLESS_MARKERS:
         if os.environ.get(env_var):
             return name
@@ -51,14 +36,6 @@ def detect_serverless() -> Optional[str]:
 
 
 class BackgroundPublisher:
-    """Non-blocking background sender for ``client.events.publish`` calls.
-
-    A single daemon thread drains a bounded queue. ``submit()`` returns
-    immediately; records are dropped (with a rate-limited warning) if the
-    queue is full. ``flush()`` and ``close()`` are safe to call from any
-    thread.
-    """
-
     def __init__(
         self,
         client: "AxonPush | AsyncAxonPush",
@@ -69,7 +46,7 @@ class BackgroundPublisher:
         self._client = client
         self._queue_size = queue_size
         self._shutdown_timeout = shutdown_timeout
-        self._queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=queue_size)
+        self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=queue_size)
         self._drop_lock = threading.Lock()
         self._drop_counter = 0
         self._last_drop_warn = 0.0
@@ -90,12 +67,10 @@ class BackgroundPublisher:
 
     def _drain(self) -> None:
         while True:
-            try:
-                item = self._queue.get(timeout=_IDLE_POLL_INTERVAL_S * 20)
-            except queue.Empty:
-                if self._closed:
-                    return
-                continue
+            item = self._queue.get()
+            if item is _SENTINEL:
+                self._queue.task_done()
+                return
             try:
                 self._client.events.publish(**item)
             except Exception as exc:
@@ -104,7 +79,6 @@ class BackgroundPublisher:
                 self._queue.task_done()
 
     def submit(self, publish_kwargs: Dict[str, Any]) -> None:
-        """Enqueue a publish. Non-blocking. Dropped if queue is full."""
         if self._closed:
             return
         try:
@@ -128,28 +102,31 @@ class BackgroundPublisher:
         )
 
     def flush(self, timeout: Optional[float] = None) -> None:
-        """Block until the queue is empty or ``timeout`` expires."""
-        deadline = time.monotonic() + timeout if timeout is not None else None
-        while self._queue.unfinished_tasks > 0:
-            if deadline is not None and time.monotonic() >= deadline:
-                return
-            time.sleep(_IDLE_POLL_INTERVAL_S)
+        with self._queue.all_tasks_done:
+            if timeout is None:
+                while self._queue.unfinished_tasks:
+                    self._queue.all_tasks_done.wait()
+            else:
+                end = time.monotonic() + timeout
+                while self._queue.unfinished_tasks:
+                    remaining = end - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    self._queue.all_tasks_done.wait(remaining)
 
     def close(self) -> None:
-        """Drain pending records and stop the worker thread."""
         with self._close_lock:
             if self._closed:
                 return
             self._closed = True
-        deadline = time.monotonic() + self._shutdown_timeout
-        while self._queue.unfinished_tasks > 0:
-            if time.monotonic() >= deadline:
-                break
-            time.sleep(_IDLE_POLL_INTERVAL_S)
+        self.flush(timeout=self._shutdown_timeout)
+        try:
+            self._queue.put_nowait(_SENTINEL)
+        except queue.Full:
+            pass
         thread = self._thread
         if thread is not None and thread.is_alive():
-            remaining = max(0.0, deadline - time.monotonic())
-            thread.join(remaining if remaining > 0 else 0.001)
+            thread.join(timeout=1.0)
         self._thread = None
 
     def _reset_after_fork(self) -> None:
@@ -158,6 +135,7 @@ class BackgroundPublisher:
         self._drop_counter = 0
         self._last_drop_warn = 0.0
         self._close_lock = threading.Lock()
+        self._closed = False
         self._thread = None
         self._start_worker()
 
@@ -191,19 +169,6 @@ def flush_after_invocation(
     *handlers: Any,
     timeout: Optional[float] = 5.0,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator that calls ``handler.flush(timeout)`` after each call.
-
-    Intended for AWS Lambda / GCF / Azure Functions handlers, where the
-    container freezes between invocations and the background worker
-    thread doesn't get a chance to drain. Wrap your handler function:
-
-        @flush_after_invocation(logging_handler, otel_exporter)
-        def lambda_handler(event, context):
-            ...
-
-    Pass ``timeout=None`` to block until drained (risky in Lambda, which
-    has its own execution timeout).
-    """
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:

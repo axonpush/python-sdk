@@ -45,7 +45,7 @@ def restore_stdio():
 def test_print_emits_one_event_per_line(mock_router, restore_stdio):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        handle = setup_print_capture(c, channel_id=5)
+        handle = setup_print_capture(c, channel_id=5, mode="sync")
         try:
             print("first line")
             print("second line")
@@ -64,7 +64,7 @@ def test_print_emits_one_event_per_line(mock_router, restore_stdio):
 def test_stderr_is_error_severity(mock_router, restore_stdio):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        handle = setup_print_capture(c, channel_id=5)
+        handle = setup_print_capture(c, channel_id=5, mode="sync")
         try:
             print("oops", file=sys.stderr)
         finally:
@@ -80,7 +80,7 @@ def test_partial_line_buffered_until_newline(mock_router, restore_stdio):
     """Writes without a newline must be buffered, not emitted as fragments."""
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        handle = setup_print_capture(c, channel_id=5)
+        handle = setup_print_capture(c, channel_id=5, mode="sync")
         try:
             sys.stdout.write("hello ")
             assert not route.called  # nothing emitted yet
@@ -97,7 +97,7 @@ def test_blank_lines_skipped(mock_router, restore_stdio):
     """Empty/whitespace-only lines should not produce events (noise reduction)."""
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        handle = setup_print_capture(c, channel_id=5)
+        handle = setup_print_capture(c, channel_id=5, mode="sync")
         try:
             print("")
             print("   ")
@@ -114,7 +114,7 @@ def test_unpatch_restores_streams(mock_router, restore_stdio):
     mock_router.post("/event").mock(return_value=_ack())
     orig_out, orig_err = sys.stdout, sys.stderr
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        handle = setup_print_capture(c, channel_id=5)
+        handle = setup_print_capture(c, channel_id=5, mode="sync")
         assert sys.stdout is not orig_out
         assert sys.stderr is not orig_err
         handle.unpatch()
@@ -125,7 +125,7 @@ def test_unpatch_restores_streams(mock_router, restore_stdio):
 def test_event_type_app_when_source_app(mock_router, restore_stdio):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        handle = setup_print_capture(c, channel_id=5, source="app")
+        handle = setup_print_capture(c, channel_id=5, source="app", mode="sync")
         try:
             print("hi")
         finally:
@@ -136,7 +136,7 @@ def test_event_type_app_when_source_app(mock_router, restore_stdio):
 def test_event_type_agent_by_default(mock_router, restore_stdio):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        handle = setup_print_capture(c, channel_id=5)  # default source="agent"
+        handle = setup_print_capture(c, channel_id=5, mode="sync")  # default source="agent"
         try:
             print("hi")
         finally:
@@ -156,7 +156,7 @@ def test_publish_failure_does_not_crash_print(mock_router, restore_stdio):
     with AxonPush(
         api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=False
     ) as c:
-        handle = setup_print_capture(c, channel_id=5)
+        handle = setup_print_capture(c, channel_id=5, mode="sync")
         try:
             print("should still work")  # must not raise
         finally:
@@ -169,7 +169,7 @@ def test_flush_emits_buffered_partial_line(mock_router, restore_stdio):
     a final newline (or a Python REPL session) would lose its last line."""
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        handle = setup_print_capture(c, channel_id=5)
+        handle = setup_print_capture(c, channel_id=5, mode="sync")
         try:
             sys.stdout.write("partial without newline")
             assert not route.called  # buffered, not yet emitted
@@ -186,7 +186,7 @@ def test_flush_with_empty_buffer_is_noop(mock_router, restore_stdio):
     """Flushing an empty (or whitespace-only) buffer must not emit anything."""
     mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        handle = setup_print_capture(c, channel_id=5)
+        handle = setup_print_capture(c, channel_id=5, mode="sync")
         try:
             sys.stdout.flush()  # nothing buffered
             sys.stdout.write("   ")
@@ -222,7 +222,7 @@ def test_works_alongside_pytest_capsys(mock_router, capsys):
     route = mock_router.post("/event").mock(return_value=_ack())
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         capsys_stdout_before = sys.stdout
-        handle = setup_print_capture(c, channel_id=5)
+        handle = setup_print_capture(c, channel_id=5, mode="sync")
         try:
             print("hello via capsys")
         finally:

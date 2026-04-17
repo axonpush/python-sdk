@@ -138,7 +138,7 @@ async def test_print_capture_with_async_client_schedules_publish(mock_router):
         async with AsyncAxonPush(
             api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL
         ) as client:
-            handle = setup_print_capture(client, channel_id=5)
+            handle = setup_print_capture(client, channel_id=5, mode="sync")
             try:
                 print("print async")
                 await _drain_loop()

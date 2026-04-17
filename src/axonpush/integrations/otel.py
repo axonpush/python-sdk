@@ -56,6 +56,7 @@ from axonpush.integrations._publisher import (
     detect_serverless,
     flush_after_invocation,
 )
+from axonpush.integrations._utils import build_resource, fire_and_forget
 from axonpush.models.events import EventType
 
 if TYPE_CHECKING:
@@ -91,14 +92,7 @@ class AxonPushSpanExporter(SpanExporter):
         self._channel_id = channel_id
         self._trace = get_or_create_trace()
 
-        resource: Dict[str, Any] = {}
-        if service_name is not None:
-            resource["service.name"] = service_name
-        if service_version is not None:
-            resource["service.version"] = service_version
-        if environment is not None:
-            resource["deployment.environment"] = environment
-        self._resource_override = resource
+        self._resource_override = build_resource(service_name, service_version, environment) or {}
 
         if resolved_mode == "background":
             self._publisher: Optional[BackgroundPublisher] = BackgroundPublisher(
@@ -244,13 +238,7 @@ class AxonPushSpanExporter(SpanExporter):
 
         try:
             result = self._client.events.publish(**publish_kwargs)
-            import asyncio
-            if asyncio.iscoroutine(result):
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(result)
-                except RuntimeError:
-                    pass
+            fire_and_forget(result)
         except Exception as exc:
             _internal_logger.warning(
                 "AxonPush OTel exporter publish failed: %s", exc

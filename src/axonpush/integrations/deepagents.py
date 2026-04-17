@@ -1,27 +1,11 @@
-"""LangChain Deep Agents integration for AxonPush.
-
-Requires: ``pip install axonpush[deepagents]``
-
-Usage::
-
-    from axonpush import AxonPush
-    from axonpush.integrations.deepagents import AxonPushDeepAgentHandler
-
-    client = AxonPush(api_key="ak_...", tenant_id="1", base_url="...")
-    handler = AxonPushDeepAgentHandler(client, channel_id=1, agent_id="my-agent")
-
-    agent = create_deep_agent(tools=[...], system_prompt="...")
-    agent.invoke({"messages": [...]}, config={"callbacks": [handler]})
-"""
 from __future__ import annotations
 
-import json
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 try:
-    from deepagents import create_deep_agent as _create_deep_agent  # noqa: F401 — peer dep check
+    from deepagents import create_deep_agent as _create_deep_agent  # noqa: F401
     from deepagents.middleware.filesystem import TOOLS_EXCLUDED_FROM_EVICTION as _FS_TOOLS
     from langchain_core.callbacks import BaseCallbackHandler
     from langchain_core.outputs import LLMResult
@@ -32,6 +16,12 @@ except ImportError:
     ) from None
 
 from axonpush._tracing import get_or_create_trace
+from axonpush.integrations._publisher import (
+    BackgroundPublisher,
+    DEFAULT_QUEUE_SIZE,
+    DEFAULT_SHUTDOWN_TIMEOUT_S,
+)
+from axonpush.integrations._utils import safe_serialize
 from axonpush.models.events import EventType
 
 logger = logging.getLogger("axonpush")
@@ -39,21 +29,14 @@ logger = logging.getLogger("axonpush")
 if TYPE_CHECKING:
     from axonpush.client import AxonPush
 
-# Deep Agents built-in tool names — derived from the deepagents package where possible.
 _PLANNING_TOOLS = {"write_todos"}
 _SUBAGENT_TOOLS = {"task"}
-_FILESYSTEM_TOOLS = set(_FS_TOOLS)  # ('ls', 'glob', 'grep', 'read_file', 'edit_file', 'write_file')
+_FILESYSTEM_TOOLS = set(_FS_TOOLS)
 _FILESYSTEM_READ_TOOLS = {"read_file", "ls", "glob", "grep"}
 _SANDBOX_TOOLS = {"execute"}
 
 
 class AxonPushDeepAgentHandler(BaseCallbackHandler):
-    """LangChain Deep Agents callback handler that publishes lifecycle events to AxonPush.
-
-    Extends standard LangChain callback handling with awareness of Deep Agent-specific
-    tools: planning (write_todos), subagent delegation (task), filesystem operations,
-    and sandbox execution.
-    """
 
     def __init__(
         self,
@@ -63,6 +46,9 @@ class AxonPushDeepAgentHandler(BaseCallbackHandler):
         agent_id: str = "deepagent",
         trace_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        mode: Optional[Literal["background", "sync"]] = None,
+        queue_size: int = DEFAULT_QUEUE_SIZE,
+        shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT_S,
     ) -> None:
         self._client = client
         self._channel_id = channel_id
@@ -70,177 +56,113 @@ class AxonPushDeepAgentHandler(BaseCallbackHandler):
         self._trace = get_or_create_trace(trace_id)
         self._base_metadata: Dict[str, Any] = {**(metadata or {}), "framework": "deepagents"}
 
-    # -- Chain lifecycle --
+        resolved_mode = mode or "background"
+        if resolved_mode == "background":
+            self._publisher: Optional[BackgroundPublisher] = BackgroundPublisher(
+                client, queue_size=queue_size, shutdown_timeout=shutdown_timeout,
+            )
+        else:
+            self._publisher = None
 
     def on_chain_start(
-        self,
-        serialized: Dict[str, Any],
-        inputs: Dict[str, Any],
-        *,
-        run_id: UUID,
-        parent_run_id: Optional[UUID] = None,
-        **kwargs: Any,
+        self, serialized: Dict[str, Any], inputs: Dict[str, Any],
+        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
     ) -> None:
         self._publish(
-            "chain.start",
-            EventType.AGENT_START,
-            {"chain_type": (serialized or {}).get("name", "unknown"), "inputs": _safe(inputs)},
-            run_id=run_id,
-            parent_run_id=parent_run_id,
+            "chain.start", EventType.AGENT_START,
+            {"chain_type": (serialized or {}).get("name", "unknown"), "inputs": safe_serialize(inputs)},
+            run_id=run_id, parent_run_id=parent_run_id,
         )
 
     def on_chain_end(
-        self,
-        outputs: Dict[str, Any],
-        *,
-        run_id: UUID,
-        parent_run_id: Optional[UUID] = None,
-        **kwargs: Any,
+        self, outputs: Dict[str, Any],
+        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
     ) -> None:
         self._publish(
-            "chain.end",
-            EventType.AGENT_END,
-            {"outputs": _safe(outputs)},
-            run_id=run_id,
-            parent_run_id=parent_run_id,
+            "chain.end", EventType.AGENT_END,
+            {"outputs": safe_serialize(outputs)},
+            run_id=run_id, parent_run_id=parent_run_id,
         )
 
     def on_chain_error(
-        self,
-        error: BaseException,
-        *,
-        run_id: UUID,
-        parent_run_id: Optional[UUID] = None,
-        **kwargs: Any,
+        self, error: BaseException,
+        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
     ) -> None:
         self._publish(
-            "chain.error",
-            EventType.AGENT_ERROR,
+            "chain.error", EventType.AGENT_ERROR,
             {"error": str(error), "error_type": type(error).__name__},
-            run_id=run_id,
-            parent_run_id=parent_run_id,
+            run_id=run_id, parent_run_id=parent_run_id,
         )
 
-    # -- LLM lifecycle --
-
     def on_llm_start(
-        self,
-        serialized: Dict[str, Any],
-        prompts: List[str],
-        *,
-        run_id: UUID,
-        parent_run_id: Optional[UUID] = None,
-        **kwargs: Any,
+        self, serialized: Dict[str, Any], prompts: List[str],
+        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
     ) -> None:
         self._publish(
-            "llm.start",
-            EventType.AGENT_START,
+            "llm.start", EventType.AGENT_START,
             {"model": (serialized or {}).get("name", "unknown"), "prompt_count": len(prompts)},
-            run_id=run_id,
-            parent_run_id=parent_run_id,
+            run_id=run_id, parent_run_id=parent_run_id,
         )
 
     def on_llm_end(
-        self,
-        response: LLMResult,
-        *,
-        run_id: UUID,
-        parent_run_id: Optional[UUID] = None,
-        **kwargs: Any,
+        self, response: LLMResult,
+        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
     ) -> None:
         gen_count = len(response.generations) if response.generations else 0
         self._publish(
-            "llm.end",
-            EventType.AGENT_END,
+            "llm.end", EventType.AGENT_END,
             {"generations": gen_count},
-            run_id=run_id,
-            parent_run_id=parent_run_id,
+            run_id=run_id, parent_run_id=parent_run_id,
         )
 
     def on_llm_new_token(
-        self,
-        token: str,
-        *,
-        run_id: UUID,
-        parent_run_id: Optional[UUID] = None,
-        **kwargs: Any,
+        self, token: str,
+        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
     ) -> None:
         self._publish(
-            "llm.token",
-            EventType.AGENT_LLM_TOKEN,
+            "llm.token", EventType.AGENT_LLM_TOKEN,
             {"token": token},
-            run_id=run_id,
-            parent_run_id=parent_run_id,
+            run_id=run_id, parent_run_id=parent_run_id,
         )
 
-    # -- Tool lifecycle (with Deep Agent-specific detection) --
-
     def on_tool_start(
-        self,
-        serialized: Dict[str, Any],
-        input_str: str,
-        *,
-        run_id: UUID,
-        parent_run_id: Optional[UUID] = None,
-        **kwargs: Any,
+        self, serialized: Dict[str, Any], input_str: str,
+        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
     ) -> None:
         tool_name = (serialized or {}).get("name", "unknown")
         identifier, event_type = _classify_tool_start(tool_name)
-
         self._publish(
-            identifier,
-            event_type,
+            identifier, event_type,
             {"tool_name": tool_name, "input": input_str[:2000]},
-            run_id=run_id,
-            parent_run_id=parent_run_id,
+            run_id=run_id, parent_run_id=parent_run_id,
         )
 
     def on_tool_end(
-        self,
-        output: Any,
-        *,
-        run_id: UUID,
-        parent_run_id: Optional[UUID] = None,
-        name: Optional[str] = None,
-        **kwargs: Any,
+        self, output: Any,
+        *, run_id: UUID, parent_run_id: Optional[UUID] = None,
+        name: Optional[str] = None, **kwargs: Any,
     ) -> None:
         tool_name = name or "unknown"
         identifier, event_type = _classify_tool_end(tool_name)
-
         self._publish(
-            identifier,
-            event_type,
-            {"tool_name": tool_name, "output": _safe(output)},
-            run_id=run_id,
-            parent_run_id=parent_run_id,
+            identifier, event_type,
+            {"tool_name": tool_name, "output": safe_serialize(output)},
+            run_id=run_id, parent_run_id=parent_run_id,
         )
 
     def on_tool_error(
-        self,
-        error: BaseException,
-        *,
-        run_id: UUID,
-        parent_run_id: Optional[UUID] = None,
-        **kwargs: Any,
+        self, error: BaseException,
+        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
     ) -> None:
         self._publish(
-            "tool.error",
-            EventType.AGENT_ERROR,
+            "tool.error", EventType.AGENT_ERROR,
             {"error": str(error), "error_type": type(error).__name__},
-            run_id=run_id,
-            parent_run_id=parent_run_id,
+            run_id=run_id, parent_run_id=parent_run_id,
         )
 
-    # -- Internal --
-
     def _publish(
-        self,
-        identifier: str,
-        event_type: EventType,
-        payload: Dict[str, Any],
-        *,
-        run_id: Optional[UUID] = None,
-        parent_run_id: Optional[UUID] = None,
+        self, identifier: str, event_type: EventType, payload: Dict[str, Any],
+        *, run_id: Optional[UUID] = None, parent_run_id: Optional[UUID] = None,
     ) -> None:
         try:
             meta = {**self._base_metadata}
@@ -249,25 +171,36 @@ class AxonPushDeepAgentHandler(BaseCallbackHandler):
             if parent_run_id:
                 meta["langchain_parent_run_id"] = str(parent_run_id)
 
-            self._client.events.publish(
-                identifier=identifier,
-                payload=payload,
-                channel_id=self._channel_id,
-                agent_id=self._agent_id,
-                trace_id=self._trace.trace_id,
-                span_id=self._trace.next_span_id(),
-                event_type=event_type,
-                metadata=meta,
-            )
+            publish_kwargs: Dict[str, Any] = {
+                "identifier": identifier,
+                "payload": payload,
+                "channel_id": self._channel_id,
+                "agent_id": self._agent_id,
+                "trace_id": self._trace.trace_id,
+                "span_id": self._trace.next_span_id(),
+                "event_type": event_type,
+                "metadata": meta,
+            }
+
+            if self._publisher is not None:
+                self._publisher.submit(publish_kwargs)
+                return
+
+            self._client.events.publish(**publish_kwargs)
         except Exception:
             logger.warning("AxonPush: failed to emit event %r, suppressing.", identifier, exc_info=True)
 
+    def flush(self, timeout: Optional[float] = None) -> None:
+        if self._publisher is not None:
+            self._publisher.flush(timeout)
 
-# -- Tool classification helpers --
+    def close(self) -> None:
+        if self._publisher is not None:
+            self._publisher.close()
+            self._publisher = None
 
 
 def _classify_tool_start(tool_name: str) -> tuple[str, EventType]:
-    """Map a tool name to an event identifier and type for tool-start events."""
     if tool_name in _PLANNING_TOOLS:
         return "planning.update", EventType.AGENT_TOOL_CALL_START
     if tool_name in _SUBAGENT_TOOLS:
@@ -281,7 +214,6 @@ def _classify_tool_start(tool_name: str) -> tuple[str, EventType]:
 
 
 def _classify_tool_end(tool_name: str) -> tuple[str, EventType]:
-    """Map a tool name to an event identifier and type for tool-end events."""
     if tool_name in _PLANNING_TOOLS:
         return "planning.complete", EventType.AGENT_TOOL_CALL_END
     if tool_name in _SUBAGENT_TOOLS:
@@ -292,15 +224,3 @@ def _classify_tool_end(tool_name: str) -> tuple[str, EventType]:
     if tool_name in _SANDBOX_TOOLS:
         return "sandbox.execute.complete", EventType.AGENT_TOOL_CALL_END
     return "tool.end", EventType.AGENT_TOOL_CALL_END
-
-
-def _safe(obj: Any, max_len: int = 2000) -> Any:
-    """Attempt JSON-safe serialization, truncating large values."""
-    try:
-        s = json.dumps(obj, default=str)
-        if len(s) > max_len:
-            return json.loads(s[:max_len] + "...")
-        return json.loads(s)
-    except (TypeError, ValueError):
-        result = str(obj)
-        return result[:max_len]

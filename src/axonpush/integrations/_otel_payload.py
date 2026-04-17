@@ -10,12 +10,11 @@ resource). See https://opentelemetry.io/docs/specs/otel/logs/data-model/.
 """
 from __future__ import annotations
 
+import bisect
 import json
 import logging
 from typing import Any, Dict, Optional
 
-# Map Python stdlib `logging` levels to OpenTelemetry SeverityNumber (1-24).
-# https://opentelemetry.io/docs/specs/otel/logs/data-model/#field-severitynumber
 _PY_LEVEL_TO_OTEL: Dict[int, tuple[int, str]] = {
     logging.NOTSET: (0, ""),
     logging.DEBUG: (5, "DEBUG"),
@@ -25,35 +24,32 @@ _PY_LEVEL_TO_OTEL: Dict[int, tuple[int, str]] = {
     logging.CRITICAL: (21, "FATAL"),
 }
 
+_PY_LEVELS_SORTED = sorted(_PY_LEVEL_TO_OTEL.keys())
+_PY_VALUES_SORTED = [_PY_LEVEL_TO_OTEL[k] for k in _PY_LEVELS_SORTED]
+
+_TEXT_TO_SEVERITY: Dict[str, tuple[int, str]] = {
+    "TRACE": (1, "TRACE"),
+    "DEBUG": (5, "DEBUG"),
+    "INFO": (9, "INFO"),
+    "NOTICE": (11, "INFO"),
+    "WARN": (13, "WARN"),
+    "WARNING": (13, "WARN"),
+    "ERROR": (17, "ERROR"),
+    "ERR": (17, "ERROR"),
+    "CRITICAL": (21, "FATAL"),
+    "FATAL": (21, "FATAL"),
+}
+
 
 def severity_from_python_level(level: int) -> tuple[int, str]:
-    """Map a Python stdlib logging level to (severityNumber, severityText)."""
-    # Find the highest defined level <= the given level
-    best = (9, "INFO")
-    best_key = -1
-    for key, value in _PY_LEVEL_TO_OTEL.items():
-        if key <= level and key > best_key:
-            best = value
-            best_key = key
-    return best
+    idx = bisect.bisect_right(_PY_LEVELS_SORTED, level) - 1
+    if idx < 0:
+        return (9, "INFO")
+    return _PY_VALUES_SORTED[idx]
 
 
 def severity_from_text(text: str) -> tuple[int, str]:
-    """Map a free-form severity text (TRACE/DEBUG/INFO/WARN/ERROR/FATAL) to OTel."""
-    upper = text.upper()
-    mapping = {
-        "TRACE": (1, "TRACE"),
-        "DEBUG": (5, "DEBUG"),
-        "INFO": (9, "INFO"),
-        "NOTICE": (11, "INFO"),
-        "WARN": (13, "WARN"),
-        "WARNING": (13, "WARN"),
-        "ERROR": (17, "ERROR"),
-        "ERR": (17, "ERROR"),
-        "CRITICAL": (21, "FATAL"),
-        "FATAL": (21, "FATAL"),
-    }
-    return mapping.get(upper, (9, "INFO"))
+    return _TEXT_TO_SEVERITY.get(text.upper(), (9, "INFO"))
 
 
 def build_log_payload(
