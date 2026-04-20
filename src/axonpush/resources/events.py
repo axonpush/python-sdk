@@ -10,8 +10,14 @@ from axonpush.models.events import CreateEventParams, Event, EventType
 class EventsResource:
     """Synchronous resource for publishing and listing events."""
 
-    def __init__(self, transport: SyncTransport) -> None:
+    def __init__(
+        self,
+        transport: SyncTransport,
+        *,
+        environment: Optional[str] = None,
+    ) -> None:
         self._transport = transport
+        self._environment = environment
 
     def publish(
         self,
@@ -25,6 +31,7 @@ class EventsResource:
         parent_event_id: Optional[int] = None,
         event_type: Optional[Union[EventType, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        environment: Optional[str] = None,
     ) -> Optional[Event]:
         """Publish an event to a channel (POST /event)."""
         if trace_id is None:
@@ -40,6 +47,7 @@ class EventsResource:
             parent_event_id=parent_event_id,
             event_type=EventType(event_type) if isinstance(event_type, str) else event_type,
             metadata=metadata,
+            environment=environment or self._environment,
         )
         data = self._transport.request(
             "POST", "/event", json=body.model_dump(by_alias=True, exclude_none=True)
@@ -49,13 +57,22 @@ class EventsResource:
         return Event.model_validate(data)
 
     def list(
-        self, channel_id: int, *, page: int = 1, limit: int = 10
+        self,
+        channel_id: int,
+        *,
+        page: int = 1,
+        limit: int = 10,
+        environment: Optional[str] = None,
     ) -> List[Event]:
         """List events in a channel (GET /event/:channelId/list)."""
+        params: Dict[str, Any] = {"page": page, "limit": limit}
+        effective_env = environment or self._environment
+        if effective_env:
+            params["environment"] = effective_env
         data = self._transport.request(
             "GET",
             f"/event/{channel_id}/list",
-            params={"page": page, "limit": limit},
+            params=params,
         )
         if _is_fail_open(data):
             return []
@@ -66,8 +83,14 @@ class EventsResource:
 class AsyncEventsResource:
     """Asynchronous resource for publishing and listing events."""
 
-    def __init__(self, transport: AsyncTransport) -> None:
+    def __init__(
+        self,
+        transport: AsyncTransport,
+        *,
+        environment: Optional[str] = None,
+    ) -> None:
         self._transport = transport
+        self._environment = environment
 
     async def publish(
         self,
@@ -81,6 +104,7 @@ class AsyncEventsResource:
         parent_event_id: Optional[int] = None,
         event_type: Optional[Union[EventType, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        environment: Optional[str] = None,
     ) -> Optional[Event]:
         """Publish an event to a channel (POST /event)."""
         if trace_id is None:
@@ -96,6 +120,7 @@ class AsyncEventsResource:
             parent_event_id=parent_event_id,
             event_type=EventType(event_type) if isinstance(event_type, str) else event_type,
             metadata=metadata,
+            environment=environment or self._environment,
         )
         data = await self._transport.request(
             "POST", "/event", json=body.model_dump(by_alias=True, exclude_none=True)
@@ -105,13 +130,22 @@ class AsyncEventsResource:
         return Event.model_validate(data)
 
     async def list(
-        self, channel_id: int, *, page: int = 1, limit: int = 10
+        self,
+        channel_id: int,
+        *,
+        page: int = 1,
+        limit: int = 10,
+        environment: Optional[str] = None,
     ) -> List[Event]:
         """List events in a channel (GET /event/:channelId/list)."""
+        params: Dict[str, Any] = {"page": page, "limit": limit}
+        effective_env = environment or self._environment
+        if effective_env:
+            params["environment"] = effective_env
         data = await self._transport.request(
             "GET",
             f"/event/{channel_id}/list",
-            params={"page": page, "limit": limit},
+            params=params,
         )
         if _is_fail_open(data):
             return []

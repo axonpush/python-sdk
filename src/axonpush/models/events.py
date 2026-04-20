@@ -32,20 +32,29 @@ class CreateEventParams(BaseModel):
     parent_event_id: Optional[int] = Field(None, alias="parentEventId")
     event_type: Optional[EventType] = Field(None, alias="eventType")
     metadata: Optional[Dict[str, Any]] = None
+    environment: Optional[str] = None
+    # Force the server's synchronous write path for this call. The default
+    # async path returns in under a millisecond but the response won't carry
+    # a DB-assigned `id`. Use sync=True for audit-critical writes.
+    sync: Optional[bool] = None
 
     model_config = {"populate_by_name": True}
 
 
 class Event(BaseModel):
-    id: int
+    # `id` is absent when the server's async_ingest flag is on — the response
+    # shape is `{identifier, queued: true, createdAt, environmentId}`.
+    id: Optional[int] = None
+    queued: Optional[bool] = None
     identifier: str
-    payload: Dict[str, Any]
+    payload: Optional[Dict[str, Any]] = None
     agent_id: Optional[str] = Field(None, alias="agentId")
     trace_id: Optional[str] = Field(None, alias="traceId")
     span_id: Optional[str] = Field(None, alias="spanId")
     parent_event_id: Optional[int] = Field(None, alias="parentEventId")
     event_type: EventType = Field(alias="eventType", default=EventType.CUSTOM)
     metadata: Optional[Dict[str, Any]] = None
+    environment_id: Optional[int] = Field(None, alias="environmentId")
     created_at: Optional[datetime] = Field(None, alias="createdAt")
     updated_at: Optional[datetime] = Field(None, alias="updatedAt")
 

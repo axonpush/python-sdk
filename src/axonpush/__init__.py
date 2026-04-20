@@ -3,6 +3,7 @@
 from axonpush._tracing import TraceContext, get_or_create_trace
 from axonpush._version import __version__
 from axonpush.client import AsyncAxonPush, AxonPush
+from axonpush.integrations.sentry import install_sentry as install_sentry
 from axonpush.exceptions import (
     APIConnectionError,
     AuthenticationError,
@@ -36,6 +37,8 @@ __all__ = [
     # Tracing
     "TraceContext",
     "get_or_create_trace",
+    # Integrations
+    "install_sentry",
     # Exceptions
     "APIConnectionError",
     "AuthenticationError",
