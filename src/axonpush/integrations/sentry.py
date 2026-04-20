@@ -72,9 +72,9 @@ def install_sentry(
 
     if dsn is None:
         api_key = api_key or os.getenv("AXONPUSH_API_KEY")
-        channel_id = channel_id or (
-            int(os.getenv("AXONPUSH_CHANNEL_ID")) if os.getenv("AXONPUSH_CHANNEL_ID") else None
-        )
+        if channel_id is None:
+            channel_env = os.getenv("AXONPUSH_CHANNEL_ID")
+            channel_id = int(channel_env) if channel_env else None
         host = host or os.getenv("AXONPUSH_HOST") or "api.axonpush.xyz"
         if not api_key or not channel_id:
             raise ValueError(
