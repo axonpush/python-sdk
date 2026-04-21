@@ -79,6 +79,60 @@ class TestSyncClient:
         assert c._fail_open is True
         c.close()
 
+    def test_environment_constructor_flows_to_auth(self):
+        """Explicit ``environment=`` kwarg must reach both the auth header
+        source (``_auth.environment``) and the events resource default."""
+        c = AxonPush(
+            api_key="ak_x", tenant_id="1", base_url=BASE_URL, environment="staging"
+        )
+        assert c._auth.environment == "staging"
+        assert c.events._environment == "staging"
+        c.close()
+
+    def test_environment_auto_detect_precedence(self, monkeypatch):
+        """Precedence: AXONPUSH_ENVIRONMENT > SENTRY_ENVIRONMENT > APP_ENV > ENV.
+        Kept explicit so a refactor that swaps the order trips the test."""
+        # Clear everything first — parent env may have any of these set.
+        for k in ("AXONPUSH_ENVIRONMENT", "SENTRY_ENVIRONMENT", "APP_ENV", "ENV"):
+            monkeypatch.delenv(k, raising=False)
+
+        monkeypatch.setenv("ENV", "env-wins-last")
+        c = AxonPush(api_key="ak_x", tenant_id="1", base_url=BASE_URL)
+        assert c._auth.environment == "env-wins-last"
+        c.close()
+
+        monkeypatch.setenv("APP_ENV", "app-env-beats-env")
+        c = AxonPush(api_key="ak_x", tenant_id="1", base_url=BASE_URL)
+        assert c._auth.environment == "app-env-beats-env"
+        c.close()
+
+        monkeypatch.setenv("SENTRY_ENVIRONMENT", "sentry-beats-app-env")
+        c = AxonPush(api_key="ak_x", tenant_id="1", base_url=BASE_URL)
+        assert c._auth.environment == "sentry-beats-app-env"
+        c.close()
+
+        monkeypatch.setenv("AXONPUSH_ENVIRONMENT", "axonpush-wins")
+        c = AxonPush(api_key="ak_x", tenant_id="1", base_url=BASE_URL)
+        assert c._auth.environment == "axonpush-wins"
+        c.close()
+
+    def test_environment_explicit_none_still_triggers_autodetect(self, monkeypatch):
+        """Passing ``environment=None`` (or omitting it) should fall through to
+        env-var auto-detection. Only a non-None string should pin the value."""
+        for k in ("AXONPUSH_ENVIRONMENT", "SENTRY_ENVIRONMENT", "APP_ENV", "ENV"):
+            monkeypatch.delenv(k, raising=False)
+        monkeypatch.setenv("AXONPUSH_ENVIRONMENT", "from-env")
+        c = AxonPush(api_key="ak_x", tenant_id="1", base_url=BASE_URL, environment=None)
+        assert c._auth.environment == "from-env"
+        c.close()
+
+    def test_environment_not_set_when_no_env_vars(self, monkeypatch):
+        for k in ("AXONPUSH_ENVIRONMENT", "SENTRY_ENVIRONMENT", "APP_ENV", "ENV"):
+            monkeypatch.delenv(k, raising=False)
+        c = AxonPush(api_key="ak_x", tenant_id="1", base_url=BASE_URL)
+        assert c._auth.environment is None
+        c.close()
+
     def test_publish_succeeds_with_mocked_backend(self, mock_router):
         mock_router.post("/event").mock(
             return_value=httpx.Response(

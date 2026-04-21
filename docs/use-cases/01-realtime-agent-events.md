@@ -15,7 +15,7 @@ pip install axonpush
 ```python
 from axonpush import AxonPush, EventType
 
-with AxonPush(api_key="ak_...", tenant_id="1") as client:
+with AxonPush(api_key="ak_...", tenant_id="1", environment="production") as client:
     # Publish an event when your agent calls a tool
     event = client.events.publish(
         "web_search",                              # what happened
@@ -25,7 +25,7 @@ with AxonPush(api_key="ak_...", tenant_id="1") as client:
         event_type=EventType.AGENT_TOOL_CALL_START,
     )
 
-    print(f"Event {event.id} published at {event.created_at}")
+    print(f"Queued {event.identifier} on trace {event.trace_id}")
 
     # Pull the last 10 events from this channel
     events = client.events.list(channel_id=1, limit=10)
@@ -39,7 +39,7 @@ with AxonPush(api_key="ak_...", tenant_id="1") as client:
 - `events.publish()` sent a structured event to channel 1. The `identifier` names the action, `payload` carries the data.
 - `EventType.AGENT_TOOL_CALL_START` tags this event so dashboards and filters know it's a tool invocation.
 - `events.list()` retrieved recent events from the same channel — useful for debugging or building a replay view.
-- The returned `Event` object includes auto-generated `id`, `created_at`, and `updated_at` timestamps.
+- The returned `Event` has `queued=True` and no DB `id` yet — the server async-ingests and writes within a few ms. Once written, the `list()` and subscription endpoints return the full shape with `id`, `created_at`, and `updated_at`.
 
 <details>
 <summary><strong>Go Deeper</strong></summary>
@@ -85,11 +85,14 @@ event = client.events.publish(
     agent_id="researcher",
     trace_id="tr_run_42",          # correlate events in a single run
     span_id="sp_abc123_0001",      # order events within a trace
-    parent_event_id=previous.id,   # link to a parent event
+    parent_event_id=123,           # link to a parent event (id from a prior list() call)
     event_type=EventType.AGENT_TOOL_CALL_START,
     metadata={"model": "gpt-4", "latency_ms": 230},  # arbitrary context
+    environment="eval",            # optional per-call override of the client default
 )
 ```
+
+> `parent_event_id` takes the DB-assigned `id` of a prior event. Publishes return `queued=True` with no `id`, so if you need to build a parent/child relationship, fetch the id from `events.list()` or a subscription — or use `trace_id` + `span_id` to reconstruct ordering without a hard FK.
 
 </details>
 

@@ -36,7 +36,7 @@ pip install axonpush[all]             # Everything
 ```python
 from axonpush import AxonPush, EventType
 
-with AxonPush(api_key="ak_...", tenant_id="1") as client:
+with AxonPush(api_key="ak_...", tenant_id="1", environment="production") as client:
     # Publish an event
     event = client.events.publish(
         "web_search",
@@ -46,6 +46,8 @@ with AxonPush(api_key="ak_...", tenant_id="1") as client:
         trace_id="tr_run_42",
         event_type=EventType.AGENT_TOOL_CALL_START,
     )
+    # event.queued == True, event.id is None — publishes are async-ingested
+    # by default. See "Response shape" below.
 
     # List events
     events = client.events.list(channel_id=1)
@@ -59,7 +61,7 @@ with AxonPush(api_key="ak_...", tenant_id="1") as client:
 ```python
 from axonpush import AsyncAxonPush
 
-async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
+async with AsyncAxonPush(api_key="ak_...", tenant_id="1", environment="production") as client:
     event = await client.events.publish(
         "web_search",
         {"query": "AI agents"},
@@ -68,6 +70,10 @@ async with AsyncAxonPush(api_key="ak_...", tenant_id="1") as client:
         event_type="agent.tool_call.start",
     )
 ```
+
+### Response shape
+
+By default, `events.publish()` returns as soon as the server has queued the event — typically under 1&nbsp;ms. The returned `Event` carries `identifier`, `queued=True`, `created_at`, and the resolved `environment_id`, but **not** a DB-assigned `id` (`event.id` is `None`). Treat `event.identifier` and `event.trace_id` as the durable correlation keys. List endpoints and subscriptions return the fully-persisted shape (with `id`) once the event is written.
 
 ## Framework Integrations
 
@@ -178,6 +184,42 @@ Start an rq worker to process the queue:
 
 ```bash
 rq worker axonpush
+```
+
+## Environments
+
+Tag every event with the environment it came from (`"production"`, `"staging"`, `"eval"`, or any string your team uses). AxonPush uses the tag server-side for isolation, filtering, and per-env quotas. The SDK forwards it as an `X-Axonpush-Environment` header on every request and threads it into the logging handler's OTel resource attributes.
+
+### Constructor
+
+```python
+from axonpush import AxonPush
+
+client = AxonPush(api_key="ak_...", tenant_id="1", environment="production")
+```
+
+If you omit `environment=`, the SDK auto-detects it from the first of these that's set: **`AXONPUSH_ENVIRONMENT`** → `SENTRY_ENVIRONMENT` → `APP_ENV` → `ENV`. That ordering means existing Sentry/12-factor setups work out of the box, and you can override with `AXONPUSH_ENVIRONMENT` when you need to.
+
+### Per-call override
+
+```python
+client.events.publish(
+    "rerun_eval",
+    {"dataset": "v2"},
+    channel_id=1,
+    environment="eval",   # this event only — doesn't change the client default
+)
+```
+
+### Temporary override with a context manager
+
+Useful for isolating eval runs, backfills, or shadow traffic from your production event stream without constructing a second client:
+
+```python
+with client.environment("eval"):
+    for row in dataset:
+        client.events.publish("row_processed", {"id": row.id}, channel_id=1)
+# outside the block: environment reverts to whatever the client was constructed with
 ```
 
 ## Logging & Observability
@@ -338,6 +380,32 @@ provider.add_span_processor(
 )
 trace.set_tracer_provider(provider)
 ```
+
+### Sentry
+
+If your app is already using `sentry-sdk`, point it at AxonPush with a one-liner. `install_sentry()` builds a Sentry DSN from your AxonPush credentials and calls `sentry_sdk.init(**kwargs)` for you — errors captured anywhere in your app (including Sentry's Flask/FastAPI/Django/Celery instrumentations) flow into your AxonPush channel instead of Sentry's cloud.
+
+```bash
+pip install sentry-sdk   # axonpush does not bundle sentry-sdk
+```
+
+```python
+from axonpush import install_sentry
+
+install_sentry(
+    api_key="ak_...",
+    channel_id=42,
+    environment="production",
+    release="my-app@1.2.3",
+    # Any extra kwargs are forwarded to sentry_sdk.init() unchanged:
+    traces_sample_rate=0.1,
+    send_default_pii=False,
+)
+
+# That's it — sentry_sdk.capture_exception / capture_message now ship to AxonPush.
+```
+
+`api_key`, `channel_id`, and `host` fall back to `AXONPUSH_API_KEY`, `AXONPUSH_CHANNEL_ID`, and `AXONPUSH_HOST` (default `api.axonpush.xyz`) if omitted. `environment` uses the same auto-detect precedence as the client (`AXONPUSH_ENVIRONMENT` → `SENTRY_ENVIRONMENT` → `APP_ENV` → `ENV`). If you need a fully-formed DSN instead, pass `dsn="..."` and the other args are ignored.
 
 ## Real-Time Subscriptions
 
