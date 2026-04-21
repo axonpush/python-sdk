@@ -22,7 +22,9 @@ def main():
         channel = client.channels.create(name="events", app_id=app.id)
         print(f"Created channel: {channel.name} (id={channel.id})")
 
-        # 3. Publish events
+        # 3. Publish events. These are async-ingested by the server — publish()
+        # returns with queued=True within a few ms, and id/created_at are populated
+        # once the write lands (visible via events.list() below).
         e1 = client.events.publish(
             identifier="task.started",
             payload={"task": "summarize article", "url": "https://example.com"},
@@ -30,7 +32,7 @@ def main():
             agent_id="research-agent",
             event_type=EventType.AGENT_START,
         )
-        print(f"Published: {e1.identifier} (id={e1.id})")
+        print(f"Published: {e1.identifier} (queued={e1.queued})")
 
         e2 = client.events.publish(
             identifier="task.progress",
@@ -39,7 +41,7 @@ def main():
             agent_id="research-agent",
             event_type=EventType.CUSTOM,
         )
-        print(f"Published: {e2.identifier} (id={e2.id})")
+        print(f"Published: {e2.identifier} (queued={e2.queued})")
 
         e3 = client.events.publish(
             identifier="task.completed",
@@ -48,7 +50,7 @@ def main():
             agent_id="research-agent",
             event_type=EventType.AGENT_END,
         )
-        print(f"Published: {e3.identifier} (id={e3.id})")
+        print(f"Published: {e3.identifier} (queued={e3.queued})")
 
         # 4. List events
         events = client.events.list(channel_id=channel.id)

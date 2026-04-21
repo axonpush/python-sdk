@@ -134,6 +134,8 @@ class TestPublishRequestBody:
 
 class TestPublishResponseParsing:
     def test_parses_event_with_camelcase_aliases(self, mock_router):
+        """Legacy synchronous-write response shape: backend returns the full
+        Event with a DB-assigned ``id``. SDK must parse every field."""
         mock_router.post("/event").mock(
             return_value=httpx.Response(
                 200,
@@ -158,6 +160,85 @@ class TestPublishResponseParsing:
         assert event.span_id == "sp_001"
         assert event.event_type == EventType.AGENT_START
         assert event.metadata == {"src": "test"}
+
+    def test_parses_async_ingest_queued_response(self, mock_router):
+        """Default async-ingest response shape (v0.0.7+): backend returns
+        ``{identifier, queued: true, createdAt, environmentId}`` with no
+        ``id``. ``Event.id`` must parse as ``None`` and ``Event.queued`` as
+        ``True``. Pins the new default behavior — a regression that re-makes
+        ``id`` required would break every publisher."""
+        mock_router.post("/event").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "identifier": "boot",
+                    "queued": True,
+                    "createdAt": "2026-04-21T10:00:00Z",
+                    "environmentId": 7,
+                },
+            )
+        )
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            event = c.events.publish("boot", {}, channel_id=5)
+        assert event is not None
+        assert event.id is None
+        assert event.queued is True
+        assert event.identifier == "boot"
+        assert event.environment_id == 7
+
+
+class TestEnvironment:
+    def test_client_environment_header_sent(self, mock_router):
+        """Constructor ``environment=`` must reach the wire as
+        ``X-Axonpush-Environment`` on every request."""
+        route = mock_router.post("/event").mock(return_value=_success_response())
+        with AxonPush(
+            api_key=API_KEY,
+            tenant_id=TENANT_ID,
+            base_url=BASE_URL,
+            environment="production",
+        ) as c:
+            c.events.publish("x", {}, channel_id=5)
+        assert route.calls.last.request.headers["x-axonpush-environment"] == "production"
+
+    def test_no_environment_header_when_unset(self, mock_router):
+        route = mock_router.post("/event").mock(return_value=_success_response())
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            c.events.publish("x", {}, channel_id=5)
+        assert "x-axonpush-environment" not in route.calls.last.request.headers
+
+    def test_per_call_environment_in_request_body(self, mock_router):
+        """Per-call ``environment=`` on publish() overrides the client default
+        and travels in the request body (not the header)."""
+        route = mock_router.post("/event").mock(return_value=_success_response())
+        with AxonPush(
+            api_key=API_KEY,
+            tenant_id=TENANT_ID,
+            base_url=BASE_URL,
+            environment="production",
+        ) as c:
+            c.events.publish("x", {}, channel_id=5, environment="eval")
+        assert _request_body(route)["environment"] == "eval"
+
+    def test_client_environment_context_manager(self, mock_router):
+        """``with client.environment("eval"):`` overrides per-call env for the
+        block and restores the client default on exit."""
+        route = mock_router.post("/event").mock(return_value=_success_response())
+        with AxonPush(
+            api_key=API_KEY,
+            tenant_id=TENANT_ID,
+            base_url=BASE_URL,
+            environment="production",
+        ) as c:
+            with c.environment("eval"):
+                c.events.publish("inside", {}, channel_id=5)
+            c.events.publish("outside", {}, channel_id=5)
+
+        bodies = [json.loads(call.request.content) for call in route.calls]
+        inside = next(b for b in bodies if b["identifier"] == "inside")
+        outside = next(b for b in bodies if b["identifier"] == "outside")
+        assert inside["environment"] == "eval"
+        assert outside["environment"] == "production"
 
 
 class TestList:
