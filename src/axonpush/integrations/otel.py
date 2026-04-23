@@ -91,6 +91,7 @@ class AxonPushSpanExporter(SpanExporter):
         self._client = client
         self._channel_id = channel_id
         self._trace = get_or_create_trace()
+        self._environment = environment
 
         self._resource_override = build_resource(service_name, service_version, environment) or {}
 
@@ -231,6 +232,8 @@ class AxonPushSpanExporter(SpanExporter):
             "event_type": EventType.APP_SPAN,
             "metadata": {"framework": "opentelemetry"},
         }
+        if self._environment is not None:
+            publish_kwargs["environment"] = self._environment
 
         if self._publisher is not None:
             self._publisher.submit(publish_kwargs)

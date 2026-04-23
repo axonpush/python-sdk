@@ -163,6 +163,7 @@ class AxonPushLoggingHandler(logging.Handler):
         self._channel_id = channel_id
         self._source = source
         self._agent_id = agent_id
+        self._environment = environment
 
         self._resource = build_resource(service_name, service_version, environment)
 
@@ -292,6 +293,8 @@ class AxonPushLoggingHandler(logging.Handler):
                 "event_type": event_type,
                 "metadata": {"framework": "stdlib-logging"},
             }
+            if self._environment is not None:
+                publish_kwargs["environment"] = self._environment
 
             if self._publisher is not None:
                 self._publisher.submit(publish_kwargs)
