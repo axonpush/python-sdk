@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
+import logging.handlers
 import os
 import queue
 import threading
@@ -20,8 +21,6 @@ DEFAULT_QUEUE_SIZE = 1000
 DEFAULT_SHUTDOWN_TIMEOUT_S = 2.0
 DROP_WARNING_INTERVAL_S = 10.0
 
-_SENTINEL = object()
-
 _SERVERLESS_MARKERS = (
     ("AWS_LAMBDA_FUNCTION_NAME", "AWS Lambda"),
     ("FUNCTION_TARGET", "Google Cloud Functions"),
@@ -36,7 +35,40 @@ def detect_serverless() -> Optional[str]:
     return None
 
 
+class _PublishHandler(logging.Handler):
+    """A ``logging.Handler`` whose ``emit`` shape matches what the stdlib
+    ``QueueListener`` expects: it pulls publish kwargs out of the
+    ``LogRecord`` (set on submit) and dispatches them via the AxonPush
+    client. Failures are swallowed and logged at WARNING — the publisher
+    pipeline is fail-open by design (a bad upstream shouldn't take down the
+    user's app).
+    """
+
+    def __init__(self, client: "AxonPush | AsyncAxonPush") -> None:
+        super().__init__(level=logging.NOTSET)
+        self._client = client
+
+    def emit(self, record: logging.LogRecord) -> None:
+        publish_kwargs = getattr(record, "_publish_kwargs", None)
+        if not publish_kwargs:
+            return
+        try:
+            self._client.events.publish(**publish_kwargs)
+        except Exception as exc:
+            _internal_logger.warning("axonpush publish failed: %s", exc)
+
+
 class BackgroundPublisher:
+    """Owns a worker thread that drains a bounded ``queue.Queue`` of
+    publish kwargs and dispatches them via the AxonPush client.
+
+    Internally backed by stdlib :class:`logging.handlers.QueueListener` —
+    same threading model, same atexit-aware lifecycle, drop-on-full
+    counter and fork-reset hooks layered on top. The public surface
+    (``submit`` / ``flush`` / ``close``) is unchanged so SDK integrations
+    that depend on it don't need to care about the swap.
+    """
+
     def __init__(
         self,
         client: "AxonPush | AsyncAxonPush",
@@ -47,43 +79,46 @@ class BackgroundPublisher:
         self._client = client
         self._queue_size = queue_size
         self._shutdown_timeout = shutdown_timeout
-        self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=queue_size)
         self._drop_lock = threading.Lock()
         self._drop_counter = 0
         self._last_drop_warn = 0.0
         self._close_lock = threading.Lock()
         self._closed = False
-        self._thread: Optional[threading.Thread] = None
-        self._start_worker()
+        self._handler = _PublishHandler(client)
+        self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=queue_size)
+        self._listener: Optional[logging.handlers.QueueListener] = None
+        self._start_listener()
         _LIVE_PUBLISHERS.add(self)
 
-    def _start_worker(self) -> None:
+    def _start_listener(self) -> None:
         self._closed = False
-        self._thread = threading.Thread(
-            target=self._drain,
-            name="axonpush-publisher",
-            daemon=True,
+        # respect_handler_level=False — we route all submitted records to
+        # _PublishHandler regardless of stdlib logging levels (the SDK
+        # already filters at the integration layer before submitting).
+        self._listener = logging.handlers.QueueListener(
+            self._queue,
+            self._handler,
+            respect_handler_level=False,
         )
-        self._thread.start()
-
-    def _drain(self) -> None:
-        while True:
-            item = self._queue.get()
-            if item is _SENTINEL:
-                self._queue.task_done()
-                return
-            try:
-                self._client.events.publish(**item)
-            except Exception as exc:
-                _internal_logger.warning("axonpush publish failed: %s", exc)
-            finally:
-                self._queue.task_done()
+        self._listener.start()
 
     def submit(self, publish_kwargs: Dict[str, Any]) -> None:
         if self._closed:
             return
+        # Wrap the kwargs in a synthetic LogRecord — that's what
+        # QueueListener pulls off the queue and hands to handler.handle().
+        record = logging.LogRecord(
+            name="axonpush",
+            level=logging.NOTSET,
+            pathname="",
+            lineno=0,
+            msg="",
+            args=None,
+            exc_info=None,
+        )
+        record._publish_kwargs = publish_kwargs  # type: ignore[attr-defined]
         try:
-            self._queue.put_nowait(publish_kwargs)
+            self._queue.put_nowait(record)
         except queue.Full:
             self._record_drop()
 
@@ -103,6 +138,8 @@ class BackgroundPublisher:
         )
 
     def flush(self, timeout: Optional[float] = None) -> None:
+        # ``QueueListener`` calls ``queue.task_done()`` after each emit, so
+        # waiting on ``all_tasks_done`` semaphores us through the backlog.
         with self._queue.all_tasks_done:
             if timeout is None:
                 while self._queue.unfinished_tasks:
@@ -121,14 +158,15 @@ class BackgroundPublisher:
                 return
             self._closed = True
         self.flush(timeout=self._shutdown_timeout)
-        try:
-            self._queue.put_nowait(_SENTINEL)
-        except queue.Full:
-            pass
-        thread = self._thread
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=1.0)
-        self._thread = None
+        listener = self._listener
+        if listener is not None:
+            try:
+                # ``QueueListener.stop()`` enqueues its sentinel and joins
+                # the worker thread. Idempotent.
+                listener.stop()
+            except Exception:
+                pass
+        self._listener = None
 
     def _reset_after_fork(self) -> None:
         self._queue = queue.Queue(maxsize=self._queue_size)
@@ -136,9 +174,8 @@ class BackgroundPublisher:
         self._drop_counter = 0
         self._last_drop_warn = 0.0
         self._close_lock = threading.Lock()
-        self._closed = False
-        self._thread = None
-        self._start_worker()
+        self._listener = None
+        self._start_listener()
 
 
 class AsyncBackgroundPublisher:

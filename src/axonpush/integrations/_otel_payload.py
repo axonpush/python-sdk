@@ -7,6 +7,15 @@ of which Python logging library the user has chosen.
 The payload follows the OTLP/HTTP/JSON LogRecord format with lowerCamelCase
 field names (timeUnixNano, severityNumber, severityText, body, attributes,
 resource). See https://opentelemetry.io/docs/specs/otel/logs/data-model/.
+
+Severity mapping delegates to the canonical
+``opentelemetry._logs.severity`` module when ``opentelemetry-api`` is
+importable (which it is whenever the ``[otel]`` extra is installed —
+the dominant case). Otherwise we fall back to a small inline table.
+
+The payload-shaping code stays bespoke because the OTel SDK doesn't
+expose a public OTLP/JSON encoder — only protobuf via the exporter
+classes. Our shape is what the AxonPush ingest consumes directly.
 """
 from __future__ import annotations
 
@@ -15,7 +24,18 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-_PY_LEVEL_TO_OTEL: Dict[int, tuple[int, str]] = {
+try:
+    from opentelemetry._logs.severity import (
+        SeverityNumber as _OtelSeverityNumber,
+        std_to_otel as _otel_std_to_otel,
+    )
+
+    _HAS_OTEL_SEVERITY = True
+except Exception:  # pragma: no cover — extra is optional
+    _HAS_OTEL_SEVERITY = False
+
+# Fallback table — only used when ``opentelemetry-api`` isn't installed.
+_PY_LEVEL_TO_OTEL_FALLBACK: Dict[int, tuple[int, str]] = {
     logging.NOTSET: (0, ""),
     logging.DEBUG: (5, "DEBUG"),
     logging.INFO: (9, "INFO"),
@@ -23,10 +43,14 @@ _PY_LEVEL_TO_OTEL: Dict[int, tuple[int, str]] = {
     logging.ERROR: (17, "ERROR"),
     logging.CRITICAL: (21, "FATAL"),
 }
+_FALLBACK_LEVELS_SORTED = sorted(_PY_LEVEL_TO_OTEL_FALLBACK.keys())
+_FALLBACK_VALUES_SORTED = [
+    _PY_LEVEL_TO_OTEL_FALLBACK[k] for k in _FALLBACK_LEVELS_SORTED
+]
 
-_PY_LEVELS_SORTED = sorted(_PY_LEVEL_TO_OTEL.keys())
-_PY_VALUES_SORTED = [_PY_LEVEL_TO_OTEL[k] for k in _PY_LEVELS_SORTED]
-
+# Severity *name* → (number, text). Used by integrations that only have a
+# string level (loguru, structlog). The OTel SDK has no canonical
+# name→SeverityNumber helper, so this stays inline.
 _TEXT_TO_SEVERITY: Dict[str, tuple[int, str]] = {
     "TRACE": (1, "TRACE"),
     "DEBUG": (5, "DEBUG"),
@@ -42,10 +66,16 @@ _TEXT_TO_SEVERITY: Dict[str, tuple[int, str]] = {
 
 
 def severity_from_python_level(level: int) -> tuple[int, str]:
-    idx = bisect.bisect_right(_PY_LEVELS_SORTED, level) - 1
+    """Map a stdlib logging level to (OTel SeverityNumber, severity text)."""
+    if _HAS_OTEL_SEVERITY:
+        sev = _otel_std_to_otel(level)
+        if sev is _OtelSeverityNumber.UNSPECIFIED:
+            return (0, "")
+        return (int(sev.value), sev.name)
+    idx = bisect.bisect_right(_FALLBACK_LEVELS_SORTED, level) - 1
     if idx < 0:
         return (9, "INFO")
-    return _PY_VALUES_SORTED[idx]
+    return _FALLBACK_VALUES_SORTED[idx]
 
 
 def severity_from_text(text: str) -> tuple[int, str]:
