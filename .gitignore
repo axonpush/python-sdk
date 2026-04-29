@@ -10,4 +10,5 @@ data/*.db
 data/resumes/
 rendercv_output/
 migrations/versions/
-.claude/settings.local.json
+.claude/
+CLAUDE.md
