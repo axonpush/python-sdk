@@ -243,27 +243,48 @@ class TestEnvironment:
 
 class TestList:
     def test_list_endpoint_path(self, mock_router):
-        route = mock_router.get("/event/5/list").mock(
+        route = mock_router.get("/event").mock(
             return_value=httpx.Response(200, json=[])
         )
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
             result = c.events.list(5)
         assert route.called
+        assert route.calls.last.request.url.params.get("channelId") == "5"
         assert result == []
 
-    def test_list_pagination_params(self, mock_router):
-        route = mock_router.get("/event/5/list").mock(
+    def test_list_typed_filters_in_query_string(self, mock_router):
+        route = mock_router.get("/event").mock(
             return_value=httpx.Response(200, json=[])
         )
         with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.list(5, page=2, limit=50)
-        req = route.calls.last.request
-        assert req.url.params.get("page") == "2"
-        assert req.url.params.get("limit") == "50"
+            c.events.list(
+                5,
+                event_type="agent.error",
+                agent_id="bot",
+                trace_id="tr_x",
+                cursor="cur_42",
+                limit=50,
+            )
+        params = route.calls.last.request.url.params
+        assert params.get("channelId") == "5"
+        assert params.get("eventType") == "agent.error"
+        assert params.get("agentId") == "bot"
+        assert params.get("traceId") == "tr_x"
+        assert params.get("cursor") == "cur_42"
+        assert params.get("limit") == "50"
+
+    def test_list_payload_filter_json_encoded(self, mock_router):
+        route = mock_router.get("/event").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            c.events.list(5, payload_filter={"status": {"$eq": "ok"}})
+        params = route.calls.last.request.url.params
+        assert params.get("payloadFilter") == '{"status": {"$eq": "ok"}}'
 
     def test_list_parses_envelope_data_field(self, mock_router):
         """Backend may wrap the result list in {data: [...]} — list() unwraps."""
-        mock_router.get("/event/5/list").mock(
+        mock_router.get("/event").mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -291,9 +312,21 @@ class TestList:
         assert events[1].identifier == "b"
 
     def test_list_returns_empty_on_fail_open(self, mock_router):
-        mock_router.get("/event/5/list").mock(side_effect=httpx.ConnectError("refused"))
+        mock_router.get("/event").mock(side_effect=httpx.ConnectError("refused"))
         with AxonPush(
             api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=True
         ) as c:
             result = c.events.list(5)
         assert result == []
+
+
+class TestSearch:
+    def test_search_endpoint_path(self, mock_router):
+        route = mock_router.get("/event/search").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+            c.events.search(channel_id=5, event_type=["agent.start", "agent.end"])
+        params = route.calls.last.request.url.params
+        assert params.get("channelId") == "5"
+        assert params.get("eventType") == "agent.start,agent.end"

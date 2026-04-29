@@ -116,7 +116,7 @@ class BackgroundPublisher:
             args=None,
             exc_info=None,
         )
-        record._publish_kwargs = publish_kwargs  # type: ignore[attr-defined]
+        record._publish_kwargs = publish_kwargs
         try:
             self._queue.put_nowait(record)
         except queue.Full:

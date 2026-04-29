@@ -7,7 +7,8 @@ from typing import Iterator, Optional
 
 from axonpush._auth import AuthConfig
 from axonpush._http import AsyncTransport, SyncTransport
-from axonpush.realtime.websocket import AsyncWebSocketClient, WebSocketClient
+from axonpush.realtime.mqtt import RealtimeClient
+from axonpush.realtime.mqtt_async import AsyncRealtimeClient
 from axonpush.resources.apps import AppsResource, AsyncAppsResource
 from axonpush.resources.channels import AsyncChannelsResource, ChannelsResource
 from axonpush.resources.events import AsyncEventsResource, EventsResource
@@ -37,9 +38,9 @@ class AxonPush:
 
     Usage::
 
-        with AxonPush(api_key="ak_...", tenant_id="1", environment="production") as client:
+        with AxonPush(api_key="ak_...", tenant_id="org_...", environment="production") as client:
             event = client.events.publish(
-                "web_search", {"query": "AI agents"}, channel_id=1,
+                "web_search", {"query": "AI agents"}, channel_id="ch_...",
                 agent_id="researcher", event_type="agent.tool_call.start",
             )
     """
@@ -53,6 +54,7 @@ class AxonPush:
         timeout: float = 30.0,
         fail_open: bool = True,
         environment: Optional[str] = None,
+        iot_endpoint: Optional[str] = None,
     ) -> None:
         resolved_env = environment if environment is not None else _detect_environment()
         if resolved_env:
@@ -63,17 +65,17 @@ class AxonPush:
             )
         self._auth = AuthConfig(api_key, tenant_id, base_url, environment=resolved_env)
         self._fail_open = fail_open
+        self._iot_endpoint = iot_endpoint
         self._transport = SyncTransport(self._auth, timeout, fail_open=fail_open)
 
         self.events = EventsResource(self._transport, environment=resolved_env)
-        self.channels = ChannelsResource(self._transport)
+        self.channels = ChannelsResource(self._transport, owner=self)
         self.apps = AppsResource(self._transport)
         self.webhooks = WebhooksResource(self._transport)
         self.traces = TracesResource(self._transport)
 
     @contextmanager
     def environment(self, env: str) -> Iterator[None]:
-        """Temporarily override the default environment for calls made inside the block."""
         previous = self.events._environment
         self.events._environment = env
         try:
@@ -81,20 +83,32 @@ class AxonPush:
         finally:
             self.events._environment = previous
 
-    def connect_websocket(self) -> Optional[WebSocketClient]:
-        ws = WebSocketClient(self._auth)
+    def connect_realtime(
+        self,
+        *,
+        org_id: Optional[str] = None,
+        app_id: Optional[str] = None,
+    ) -> Optional[RealtimeClient]:
+        rt = RealtimeClient(
+            self._transport,
+            org_id=org_id or self._auth.tenant_id,
+            app_id=app_id,
+            iot_endpoint=self._iot_endpoint,
+        )
         try:
-            ws.connect()
+            rt.connect()
         except Exception as exc:
             if self._fail_open:
                 logger.warning(
-                    "AxonPush WebSocket connection failed: %s. "
+                    "AxonPush realtime connection failed: %s. "
                     "The error was suppressed (fail_open=True).",
                     exc,
                 )
                 return None
             raise
-        return ws
+        return rt
+
+    connect_websocket = connect_realtime
 
     def close(self) -> None:
         self._transport.close()
@@ -118,6 +132,7 @@ class AsyncAxonPush:
         timeout: float = 30.0,
         fail_open: bool = True,
         environment: Optional[str] = None,
+        iot_endpoint: Optional[str] = None,
     ) -> None:
         resolved_env = environment if environment is not None else _detect_environment()
         if resolved_env:
@@ -128,10 +143,11 @@ class AsyncAxonPush:
             )
         self._auth = AuthConfig(api_key, tenant_id, base_url, environment=resolved_env)
         self._fail_open = fail_open
+        self._iot_endpoint = iot_endpoint
         self._transport = AsyncTransport(self._auth, timeout, fail_open=fail_open)
 
         self.events = AsyncEventsResource(self._transport, environment=resolved_env)
-        self.channels = AsyncChannelsResource(self._transport)
+        self.channels = AsyncChannelsResource(self._transport, owner=self)
         self.apps = AsyncAppsResource(self._transport)
         self.webhooks = AsyncWebhooksResource(self._transport)
         self.traces = AsyncTracesResource(self._transport)
@@ -145,20 +161,32 @@ class AsyncAxonPush:
         finally:
             self.events._environment = previous
 
-    async def connect_websocket(self) -> Optional[AsyncWebSocketClient]:
-        ws = AsyncWebSocketClient(self._auth)
+    async def connect_realtime(
+        self,
+        *,
+        org_id: Optional[str] = None,
+        app_id: Optional[str] = None,
+    ) -> Optional[AsyncRealtimeClient]:
+        rt = AsyncRealtimeClient(
+            self._transport,
+            org_id=org_id or self._auth.tenant_id,
+            app_id=app_id,
+            iot_endpoint=self._iot_endpoint,
+        )
         try:
-            await ws.connect()
+            await rt.connect()
         except Exception as exc:
             if self._fail_open:
                 logger.warning(
-                    "AxonPush WebSocket connection failed: %s. "
+                    "AxonPush realtime connection failed: %s. "
                     "The error was suppressed (fail_open=True).",
                     exc,
                 )
                 return None
             raise
-        return ws
+        return rt
+
+    connect_websocket = connect_realtime
 
     async def close(self) -> None:
         await self._transport.close()

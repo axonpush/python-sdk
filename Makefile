@@ -60,7 +60,7 @@ typecheck:
 test: test-unit
 
 test-unit:
-	uv run pytest tests/unit -v
+	uv run pytest tests/unit tests/realtime -v
 
 # `test-e2e` depends on `e2e-db-setup` so migrations are always up to date
 # before tests run. The pytest conftest then auto-starts easy-push (and

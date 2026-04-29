@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import logging
-from contextlib import contextmanager
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, Optional
 
 import httpx
-from httpx_sse import EventSource, connect_sse
 
 from axonpush._auth import AuthConfig
 from axonpush.exceptions import (
@@ -31,8 +29,8 @@ _FAIL_OPEN_SENTINEL = object()
 
 
 def _is_fail_open(result: Any) -> bool:
-    """Check whether a transport result is the fail-open sentinel."""
     return result is _FAIL_OPEN_SENTINEL
+
 
 _ERROR_MAP: Dict[int, type] = {
     400: ValidationError,
@@ -109,15 +107,6 @@ class SyncTransport:
         if not response.content:
             return None
         return response.json()
-
-    @contextmanager
-    def stream_sse(
-        self, path: str, params: Optional[Dict[str, Any]] = None
-    ) -> Generator[EventSource, None, None]:
-        with connect_sse(
-            self._client, "GET", path, params=params or {}
-        ) as event_source:
-            yield event_source
 
     def close(self) -> None:
         self._client.close()
