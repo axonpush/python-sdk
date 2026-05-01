@@ -115,9 +115,24 @@ def test_subscribe_builds_topic_and_calls_paho(mock_router, fake_paho):
     with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
         rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
         rt.connect()
+        rt.subscribe(
+            "ch_5", event_type=EventType.AGENT_ERROR, agent_id="bot", environment="prod"
+        )
+        assert (
+            "axonpush/org_1/prod/app_1/ch_5/agent_error/bot",
+            1,
+        ) in rt._client.subscriptions
+        rt.disconnect()
+
+
+def test_subscribe_without_env_uses_plus_wildcard(mock_router, fake_paho):
+    mock_router.get("/auth/iot-credentials").mock(return_value=_credential_response())
+    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
+        rt.connect()
         rt.subscribe("ch_5", event_type=EventType.AGENT_ERROR, agent_id="bot")
         assert (
-            "axonpush/org_1/app_1/ch_5/agent.error/bot",
+            "axonpush/org_1/+/app_1/ch_5/agent_error/bot",
             1,
         ) in rt._client.subscriptions
         rt.disconnect()
@@ -129,7 +144,7 @@ def test_subscribe_without_filters_uses_wildcards(mock_router, fake_paho):
         rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
         rt.connect()
         rt.subscribe("ch_5")
-        assert ("axonpush/org_1/app_1/ch_5/+/+", 1) in rt._client.subscriptions
+        assert ("axonpush/org_1/+/app_1/ch_5/+/+", 1) in rt._client.subscriptions
         rt.disconnect()
 
 
@@ -144,9 +159,10 @@ def test_publish_serialises_event_body(mock_router, fake_paho):
             {"n": 1},
             event_type=EventType.AGENT_MESSAGE,
             agent_id="bot",
+            environment="prod",
         )
         topic, body, qos = rt._client.published[-1]
-        assert topic == "axonpush/org_1/app_1/ch_5/agent.message/bot"
+        assert topic == "axonpush/org_1/prod/app_1/ch_5/agent_message/bot"
         assert qos == 1
         decoded = json.loads(body.decode("utf-8"))
         assert decoded["identifier"] == "tick"
@@ -244,5 +260,5 @@ def test_connect_without_org_uses_plus(mock_router, fake_paho):
         # tenant_id passed at client level becomes the org_id by default in
         # client.connect_realtime, but here we instantiate RealtimeClient
         # directly with no org_id, so it falls back to the '+' wildcard.
-        assert any("axonpush/+/+/ch_5/+/+" == t for t in topics)
+        assert any("axonpush/+/+/+/ch_5/+/+" == t for t in topics)
         rt.disconnect()

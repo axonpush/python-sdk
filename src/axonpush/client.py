@@ -11,6 +11,7 @@ from axonpush.realtime.mqtt import RealtimeClient
 from axonpush.realtime.mqtt_async import AsyncRealtimeClient
 from axonpush.resources.apps import AppsResource, AsyncAppsResource
 from axonpush.resources.channels import AsyncChannelsResource, ChannelsResource
+from axonpush.resources.environments import AsyncEnvironmentsResource, EnvironmentsResource
 from axonpush.resources.events import AsyncEventsResource, EventsResource
 from axonpush.resources.traces import AsyncTracesResource, TracesResource
 from axonpush.resources.webhooks import AsyncWebhooksResource, WebhooksResource
@@ -71,6 +72,7 @@ class AxonPush:
         self.events = EventsResource(self._transport, environment=resolved_env)
         self.channels = ChannelsResource(self._transport, owner=self)
         self.apps = AppsResource(self._transport)
+        self.environments = EnvironmentsResource(self._transport)
         self.webhooks = WebhooksResource(self._transport)
         self.traces = TracesResource(self._transport)
 
@@ -88,11 +90,13 @@ class AxonPush:
         *,
         org_id: Optional[str] = None,
         app_id: Optional[str] = None,
+        environment: Optional[str] = None,
     ) -> Optional[RealtimeClient]:
         rt = RealtimeClient(
             self._transport,
             org_id=org_id or self._auth.tenant_id,
             app_id=app_id,
+            environment=environment if environment is not None else self.events._environment,
             iot_endpoint=self._iot_endpoint,
         )
         try:
@@ -149,6 +153,7 @@ class AsyncAxonPush:
         self.events = AsyncEventsResource(self._transport, environment=resolved_env)
         self.channels = AsyncChannelsResource(self._transport, owner=self)
         self.apps = AsyncAppsResource(self._transport)
+        self.environments = AsyncEnvironmentsResource(self._transport)
         self.webhooks = AsyncWebhooksResource(self._transport)
         self.traces = AsyncTracesResource(self._transport)
 
@@ -166,11 +171,13 @@ class AsyncAxonPush:
         *,
         org_id: Optional[str] = None,
         app_id: Optional[str] = None,
+        environment: Optional[str] = None,
     ) -> Optional[AsyncRealtimeClient]:
         rt = AsyncRealtimeClient(
             self._transport,
             org_id=org_id or self._auth.tenant_id,
             app_id=app_id,
+            environment=environment if environment is not None else self.events._environment,
             iot_endpoint=self._iot_endpoint,
         )
         try:

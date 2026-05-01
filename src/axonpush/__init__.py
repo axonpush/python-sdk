@@ -16,6 +16,7 @@ from axonpush.exceptions import (
 )
 from axonpush.models.apps import App
 from axonpush.models.channels import Channel
+from axonpush.models.environments import Environment
 from axonpush.models.events import Event, EventType
 from axonpush.models.traces import TraceListItem, TraceSummary
 from axonpush.models.webhooks import DeliveryStatus, WebhookDelivery, WebhookEndpoint
@@ -28,6 +29,7 @@ __all__ = [
     "App",
     "Channel",
     "DeliveryStatus",
+    "Environment",
     "Event",
     "EventType",
     "TraceListItem",

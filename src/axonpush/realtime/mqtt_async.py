@@ -72,12 +72,14 @@ class AsyncRealtimeClient:
         *,
         org_id: Optional[str] = None,
         app_id: Optional[str] = None,
+        environment: Optional[str] = None,
         iot_endpoint: Optional[str] = None,
         keepalive: int = _DEFAULT_KEEPALIVE_S,
     ) -> None:
         self._transport = transport
         self._org_id = org_id
         self._app_id = app_id
+        self._environment = environment
         self._iot_endpoint = iot_endpoint
         self._keepalive = keepalive
         self._aiomqtt = _import_aiomqtt()
@@ -203,12 +205,16 @@ class AsyncRealtimeClient:
         *,
         event_type: Optional[Union[EventType, str]] = None,
         agent_id: Optional[str] = None,
+        environment: Optional[str] = None,
         qos: int = 1,
     ) -> None:
         org, app, ch, et, ag = _coerce_filter(
             self._org_id, self._app_id, channel_id, event_type, agent_id
         )
-        topic = build_subscribe_topic(org, app, ch, event_type=et, agent_id=ag)
+        env = environment if environment is not None else self._environment
+        topic = build_subscribe_topic(
+            org, app, ch, event_type=et, agent_id=ag, environment=env
+        )
         self._subscriptions.append((topic, qos))
         if self._client is not None:
             await self._client.subscribe(topic, qos=qos)
@@ -219,11 +225,15 @@ class AsyncRealtimeClient:
         *,
         event_type: Optional[Union[EventType, str]] = None,
         agent_id: Optional[str] = None,
+        environment: Optional[str] = None,
     ) -> None:
         org, app, ch, et, ag = _coerce_filter(
             self._org_id, self._app_id, channel_id, event_type, agent_id
         )
-        topic = build_subscribe_topic(org, app, ch, event_type=et, agent_id=ag)
+        env = environment if environment is not None else self._environment
+        topic = build_subscribe_topic(
+            org, app, ch, event_type=et, agent_id=ag, environment=env
+        )
         self._subscriptions = [s for s in self._subscriptions if s[0] != topic]
         if self._client is not None:
             await self._client.unsubscribe(topic)
@@ -237,6 +247,7 @@ class AsyncRealtimeClient:
         event_type: Union[EventType, str] = EventType.CUSTOM,
         agent_id: Optional[str] = None,
         trace_id: Optional[str] = None,
+        environment: Optional[str] = None,
         qos: int = 1,
     ) -> None:
         if self._client is None:
@@ -244,7 +255,13 @@ class AsyncRealtimeClient:
         org, app, ch, et, ag = _coerce_filter(
             self._org_id, self._app_id, channel_id, event_type, agent_id
         )
-        topic = build_publish_topic(org, app, ch, event_type=et or EventType.CUSTOM, agent_id=ag)
+        env = environment if environment is not None else self._environment
+        topic = build_publish_topic(
+            org, app, ch,
+            event_type=et or EventType.CUSTOM,
+            agent_id=ag,
+            environment=env,
+        )
         body: Dict[str, Any] = {
             "identifier": identifier,
             "payload": payload,

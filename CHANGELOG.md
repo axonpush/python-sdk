@@ -4,6 +4,56 @@ All notable changes to the AxonPush Python SDK are documented here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] – 2026-05-01
+
+**Breaking**: this release pairs with the backend move from per-app
+environments to org-level environments, and reshapes the realtime MQTT
+topic to include an env slot.
+
+### Breaking changes
+- **MQTT topic shape** now has an environment slot between org and app:
+
+      old:  axonpush/{org}/{app}/{channel}/{eventType}/{agentId}
+      new:  axonpush/{org}/{envSlug}/{app}/{channel}/{eventType}/{agentId}
+
+  On subscribe, the env slot wildcards to ``+`` when the caller doesn't
+  pass ``environment=...``. On publish, it falls back to the literal
+  ``"default"`` so AWS IoT routes the message to the org's default
+  environment. All segments are sanitised (``[^a-zA-Z0-9_-] -> _``) to
+  match the backend topic-builder — e.g. ``agent.error`` is encoded as
+  ``agent_error`` on the wire.
+- **Environments are org-level**. The
+  ``axonpush.resources.environments`` module now targets
+  ``/environments`` (was ``/apps/{appId}/environments``). The ``app_id``
+  argument is gone from every method on ``EnvironmentsResource`` /
+  ``AsyncEnvironmentsResource``.
+- ``Environment`` model drops the per-app ``app_id`` field; gains
+  ``environment_id``, ``org_id``, ``slug``, ``is_default``,
+  ``is_production``, ``is_ephemeral``, ``expires_at``.
+
+### Added
+- ``EnvironmentsResource`` / ``AsyncEnvironmentsResource`` with
+  ``list()``, ``create(name, slug=, color=, is_production=,
+  is_default=, clone_from_env_id=)``, ``update(env_id, ...)``,
+  ``delete(env_id)``, ``promote_to_default(env_id)``. Wired in as
+  ``client.environments``.
+- ``environment=`` kwarg on
+  ``RealtimeClient`` / ``AsyncRealtimeClient`` constructor,
+  ``subscribe()``, ``unsubscribe()``, ``publish()``, plus
+  ``client.connect_realtime(environment=...)``. Falls through to the
+  client-level ``environment`` set on construction (or detected from
+  ``AXONPUSH_ENVIRONMENT`` / ``SENTRY_ENVIRONMENT`` / ``APP_ENV`` /
+  ``ENV``).
+- ``Environment``, ``CreateEnvironmentParams``,
+  ``UpdateEnvironmentParams`` exported from
+  ``axonpush.models.environments`` (and ``axonpush.Environment``).
+
+### Changed
+- Topic-builder helpers ``build_subscribe_topic`` /
+  ``build_publish_topic`` accept ``environment=`` (kw-only); subscribe
+  wildcards missing slots, publish substitutes ``default`` for env and
+  ``_`` for missing agent.
+
 ## [0.1.0] – 2026-04-29
 
 **Breaking**: this release pairs with the AxonPush AWS-serverless rewrite
