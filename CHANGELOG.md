@@ -4,7 +4,7 @@ All notable changes to the AxonPush Python SDK are documented here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] – 2026-05-01
+## [0.0.11] – 2026-05-01
 
 **Breaking**: this release pairs with the backend move from per-app
 environments to org-level environments, and reshapes the realtime MQTT
