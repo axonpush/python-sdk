@@ -95,9 +95,7 @@ def _msg(topic: str, payload: dict[str, Any]) -> Any:
 
 
 @pytest.mark.asyncio
-async def test_aconnect_fetches_creds_and_opens_client(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_aconnect_fetches_creds_and_opens_client(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade)
     await rt.aconnect()
     assert isinstance(rt._mqtt, _FakeAiomqtt)
@@ -135,9 +133,7 @@ async def test_subscribe_builds_topic(fake_async_facade, fake_aiomqtt) -> None:
 
 
 @pytest.mark.asyncio
-async def test_publish_serialises_payload(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_publish_serialises_payload(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade, environment="prod")
     await rt.aconnect()
     await rt.publish(
@@ -156,14 +152,10 @@ async def test_publish_serialises_payload(
 
 
 @pytest.mark.asyncio
-async def test_publish_falls_back_to_credential_env_slug(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_publish_falls_back_to_credential_env_slug(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade)
     await rt.aconnect()
-    await rt.publish(
-        "ch_5", app_id="app_1", event_type="custom", payload={"x": 1}
-    )
+    await rt.publish("ch_5", app_id="app_1", event_type="custom", payload={"x": 1})
     topic, _b, _q = rt._mqtt.published[-1]
     assert topic == "axonpush/org_1/default/app_1/ch_5/custom/_"
     rt._mqtt.close_messages()
@@ -171,29 +163,21 @@ async def test_publish_falls_back_to_credential_env_slug(
 
 
 @pytest.mark.asyncio
-async def test_publish_before_connect_raises(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_publish_before_connect_raises(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade)
     with pytest.raises(RuntimeError, match="connect"):
-        await rt.publish(
-            "ch_5", app_id="app_1", event_type="custom", payload={}
-        )
+        await rt.publish("ch_5", app_id="app_1", event_type="custom", payload={})
 
 
 @pytest.mark.asyncio
-async def test_subscribe_before_connect_raises(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_subscribe_before_connect_raises(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade)
     with pytest.raises(RuntimeError, match="connect"):
         await rt.subscribe("ch_5", callback=lambda _m: None)
 
 
 @pytest.mark.asyncio
-async def test_async_callback_dispatched(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_async_callback_dispatched(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade)
     await rt.aconnect()
     received: list[dict[str, Any]] = []
@@ -224,9 +208,7 @@ async def test_async_callback_dispatched(
 
 
 @pytest.mark.asyncio
-async def test_sync_callback_also_works(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_sync_callback_also_works(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade)
     await rt.aconnect()
     received: list[Any] = []
@@ -236,9 +218,7 @@ async def test_sync_callback_also_works(
         event_type="custom",
         callback=received.append,
     )
-    rt._mqtt.push(
-        _msg("axonpush/org_1/default/app_1/ch_5/custom/_", {"x": 1})
-    )
+    rt._mqtt.push(_msg("axonpush/org_1/default/app_1/ch_5/custom/_", {"x": 1}))
     rt._mqtt.close_messages()
     if rt._reader_task is not None:
         try:
@@ -250,9 +230,7 @@ async def test_sync_callback_also_works(
 
 
 @pytest.mark.asyncio
-async def test_failing_callback_does_not_break_reader(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_failing_callback_does_not_break_reader(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade)
     await rt.aconnect()
     seen: list[Any] = []
@@ -260,15 +238,9 @@ async def test_failing_callback_does_not_break_reader(
     async def bad(_p: Any) -> None:
         raise RuntimeError("boom")
 
-    await rt.subscribe(
-        "ch_5", app_id="app_1", event_type="custom", callback=bad
-    )
-    await rt.subscribe(
-        "ch_5", app_id="app_1", event_type="custom", callback=seen.append
-    )
-    rt._mqtt.push(
-        _msg("axonpush/org_1/default/app_1/ch_5/custom/_", {"x": 1})
-    )
+    await rt.subscribe("ch_5", app_id="app_1", event_type="custom", callback=bad)
+    await rt.subscribe("ch_5", app_id="app_1", event_type="custom", callback=seen.append)
+    rt._mqtt.push(_msg("axonpush/org_1/default/app_1/ch_5/custom/_", {"x": 1}))
     rt._mqtt.close_messages()
     if rt._reader_task is not None:
         try:
@@ -301,9 +273,7 @@ async def test_invalid_json_dropped(fake_async_facade, fake_aiomqtt) -> None:
 
 
 @pytest.mark.asyncio
-async def test_aconnect_propagates_broker_error(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_aconnect_propagates_broker_error(fake_async_facade, fake_aiomqtt) -> None:
     """If ``__aenter__`` raises, the refresh task is never scheduled —
     fixing the race where a stale-credential refresh could fire after a
     failed reconnect."""
@@ -315,9 +285,7 @@ async def test_aconnect_propagates_broker_error(
 
 
 @pytest.mark.asyncio
-async def test_adisconnect_cancels_tasks(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_adisconnect_cancels_tasks(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade)
     await rt.aconnect()
     assert rt._refresh_task is not None
@@ -329,9 +297,7 @@ async def test_adisconnect_cancels_tasks(
 
 
 @pytest.mark.asyncio
-async def test_unsubscribe_removes_handler(
-    fake_async_facade, fake_aiomqtt
-) -> None:
+async def test_unsubscribe_removes_handler(fake_async_facade, fake_aiomqtt) -> None:
     rt = AsyncRealtimeClient(fake_async_facade)
     await rt.aconnect()
     topic = await rt.subscribe("ch_5", callback=lambda _m: None)
@@ -349,8 +315,6 @@ async def test_aiomqtt_missing_raises_actionable_import_error(
     def _boom() -> Any:
         raise ImportError("aiomqtt missing")
 
-    monkeypatch.setattr(
-        "axonpush.realtime.mqtt_async._import_aiomqtt", _boom
-    )
+    monkeypatch.setattr("axonpush.realtime.mqtt_async._import_aiomqtt", _boom)
     with pytest.raises(ImportError, match="aiomqtt"):
         AsyncRealtimeClient(fake_async_facade)

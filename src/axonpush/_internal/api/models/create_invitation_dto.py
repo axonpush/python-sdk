@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, BinaryIO, Generator, TextIO, TypeVar
+from typing import Any, TypeVar
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.create_invitation_dto_desired_role import CreateInvitationDtoDesiredRole
-from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="CreateInvitationDto")
 

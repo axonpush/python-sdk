@@ -8,6 +8,7 @@ Streams are restored on :meth:`PrintCaptureHandle.unpatch` and via an
 ``atexit`` hook so we never leave Python running with a dangling tee
 stream after the user's app exits.
 """
+
 from __future__ import annotations
 
 import atexit
@@ -131,9 +132,7 @@ class _AxonPushTeeStream:
             "log.iostream": self._stream_name,
             "log.source": "print",
         }
-        resource = (
-            {"service.name": self._service_name} if self._service_name else None
-        )
+        resource = {"service.name": self._service_name} if self._service_name else None
 
         payload = build_log_payload(
             body=line,
@@ -144,9 +143,7 @@ class _AxonPushTeeStream:
             resource=resource,
         )
 
-        event_type = (
-            EventType.APP_LOG if self._source == "app" else EventType.AGENT_LOG
-        )
+        event_type = EventType.APP_LOG if self._source == "app" else EventType.AGENT_LOG
 
         publish_kwargs: Dict[str, Any] = {
             "identifier": "print",
@@ -205,14 +202,24 @@ def setup_print_capture(
     orig_stdout, orig_stderr = sys.stdout, sys.stderr
 
     sys.stdout = _AxonPushTeeStream(
-        orig_stdout, client, coerced_channel,
-        agent_id=agent_id, source=source, stream_name="stdout",
-        service_name=service_name, publisher=publisher,
+        orig_stdout,
+        client,
+        coerced_channel,
+        agent_id=agent_id,
+        source=source,
+        stream_name="stdout",
+        service_name=service_name,
+        publisher=publisher,
     )
     sys.stderr = _AxonPushTeeStream(
-        orig_stderr, client, coerced_channel,
-        agent_id=agent_id, source=source, stream_name="stderr",
-        service_name=service_name, publisher=publisher,
+        orig_stderr,
+        client,
+        coerced_channel,
+        agent_id=agent_id,
+        source=source,
+        stream_name="stderr",
+        service_name=service_name,
+        publisher=publisher,
     )
 
     handle = PrintCaptureHandle(

@@ -49,9 +49,7 @@ class TestEvents:
         )
         listing = client.events.list(channel.id)
         assert isinstance(listing, EventListResponseDto)
-        assert any(
-            e.trace_id and e.trace_id.startswith("tr_") for e in listing.data
-        )
+        assert any(e.trace_id and e.trace_id.startswith("tr_") for e in listing.data)
 
     def test_publish_with_explicit_trace_id(self, client, channel):
         trace_id = f"tr_{uuid.uuid4().hex[:16]}"

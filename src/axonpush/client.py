@@ -40,9 +40,7 @@ def _build_settings(
     base = Settings()
     overrides: dict[str, Any] = {}
     if api_key is not None:
-        overrides["api_key"] = (
-            api_key if isinstance(api_key, SecretStr) else SecretStr(api_key)
-        )
+        overrides["api_key"] = api_key if isinstance(api_key, SecretStr) else SecretStr(api_key)
     if tenant_id is not None:
         overrides["tenant_id"] = tenant_id
     if base_url is not None:

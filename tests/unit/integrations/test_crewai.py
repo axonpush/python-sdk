@@ -4,6 +4,7 @@ CrewAI doesn't need to be importable for the integration to be tested —
 the callback class is plain Python and uses only attribute access on
 the step output object.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -62,9 +63,7 @@ class TestCrewCallbacks:
         cb.on_crew_end("done")
         assert fake_sync_client.events.calls[0]["identifier"] == "crew.end"
 
-    def test_publish_failure_swallowed(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_publish_failure_swallowed(self, fake_sync_client: FakeSyncClient) -> None:
         fake_sync_client.events.exception = RuntimeError("nope")
         cb = AxonPushCrewCallbacks(fake_sync_client, "ch_x", mode="sync")
         cb.on_crew_start()  # must not raise

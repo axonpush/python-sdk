@@ -17,6 +17,7 @@ Install::
 
     pip install axonpush[langchain]
 """
+
 from __future__ import annotations
 
 import logging
@@ -63,7 +64,9 @@ def _build_sync_publisher(
         return RqPublisher(client, **(rq_options or {}))
     if mode == "background":
         return BackgroundPublisher(
-            client, queue_size=queue_size, shutdown_timeout=shutdown_timeout,
+            client,
+            queue_size=queue_size,
+            shutdown_timeout=shutdown_timeout,
         )
     return None
 
@@ -141,110 +144,176 @@ class AxonPushCallbackHandler(BaseCallbackHandler):
             "framework": "langchain",
         }
         self._publisher = _build_sync_publisher(
-            client, mode or "background", queue_size, shutdown_timeout, rq_options,
+            client,
+            mode or "background",
+            queue_size,
+            shutdown_timeout,
+            rq_options,
         )
 
     def on_chain_start(
-        self, serialized: Dict[str, Any], inputs: Dict[str, Any],
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        serialized: Dict[str, Any],
+        inputs: Dict[str, Any],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "chain.start", EventType.AGENT_START,
+            "chain.start",
+            EventType.AGENT_START,
             {
                 "chain_type": (serialized or {}).get("name", "unknown"),
                 "inputs": safe_serialize(inputs),
             },
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def on_chain_end(
-        self, outputs: Dict[str, Any],
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        outputs: Dict[str, Any],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "chain.end", EventType.AGENT_END,
+            "chain.end",
+            EventType.AGENT_END,
             {"outputs": safe_serialize(outputs)},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def on_chain_error(
-        self, error: BaseException,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "chain.error", EventType.AGENT_ERROR,
+            "chain.error",
+            EventType.AGENT_ERROR,
             {"error": str(error), "error_type": type(error).__name__},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def on_llm_start(
-        self, serialized: Dict[str, Any], prompts: List[str],
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        serialized: Dict[str, Any],
+        prompts: List[str],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "llm.start", EventType.AGENT_START,
+            "llm.start",
+            EventType.AGENT_START,
             {
                 "model": (serialized or {}).get("name", "unknown"),
                 "prompt_count": len(prompts),
             },
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def on_llm_end(
-        self, response: LLMResult,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        response: LLMResult,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         gen_count = len(response.generations) if response.generations else 0
         self._publish(
-            "llm.end", EventType.AGENT_END,
+            "llm.end",
+            EventType.AGENT_END,
             {"generations": gen_count},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def on_llm_new_token(
-        self, token: str,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        token: str,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "llm.token", EventType.AGENT_LLM_TOKEN,
+            "llm.token",
+            EventType.AGENT_LLM_TOKEN,
             {"token": token},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def on_tool_start(
-        self, serialized: Dict[str, Any], input_str: str,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        serialized: Dict[str, Any],
+        input_str: str,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         tool_name = (serialized or {}).get("name", "unknown")
         self._publish(
-            f"tool.{tool_name}.start", EventType.AGENT_TOOL_CALL_START,
+            f"tool.{tool_name}.start",
+            EventType.AGENT_TOOL_CALL_START,
             {"tool_name": tool_name, "input": input_str[:2000]},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def on_tool_end(
-        self, output: Any,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        output: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "tool.end", EventType.AGENT_TOOL_CALL_END,
+            "tool.end",
+            EventType.AGENT_TOOL_CALL_END,
             {"output": safe_serialize(output)},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def on_tool_error(
-        self, error: BaseException,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "tool.error", EventType.AGENT_ERROR,
+            "tool.error",
+            EventType.AGENT_ERROR,
             {"error": str(error), "error_type": type(error).__name__},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def _publish(
-        self, identifier: str, event_type: EventType, payload: Dict[str, Any],
-        *, run_id: Optional[UUID] = None, parent_run_id: Optional[UUID] = None,
+        self,
+        identifier: str,
+        event_type: EventType,
+        payload: Dict[str, Any],
+        *,
+        run_id: Optional[UUID] = None,
+        parent_run_id: Optional[UUID] = None,
     ) -> None:
         try:
             kwargs = _publish_kwargs(
@@ -304,110 +373,175 @@ class AsyncAxonPushCallbackHandler(AsyncCallbackHandler):
             "framework": "langchain",
         }
         self._publisher = _build_async_publisher(
-            client, mode or "background", max_pending, rq_options,
+            client,
+            mode or "background",
+            max_pending,
+            rq_options,
         )
 
     async def on_chain_start(
-        self, serialized: Dict[str, Any], inputs: Dict[str, Any],
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        serialized: Dict[str, Any],
+        inputs: Dict[str, Any],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "chain.start", EventType.AGENT_START,
+            "chain.start",
+            EventType.AGENT_START,
             {
                 "chain_type": (serialized or {}).get("name", "unknown"),
                 "inputs": safe_serialize(inputs),
             },
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     async def on_chain_end(
-        self, outputs: Dict[str, Any],
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        outputs: Dict[str, Any],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "chain.end", EventType.AGENT_END,
+            "chain.end",
+            EventType.AGENT_END,
             {"outputs": safe_serialize(outputs)},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     async def on_chain_error(
-        self, error: BaseException,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "chain.error", EventType.AGENT_ERROR,
+            "chain.error",
+            EventType.AGENT_ERROR,
             {"error": str(error), "error_type": type(error).__name__},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     async def on_llm_start(
-        self, serialized: Dict[str, Any], prompts: List[str],
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        serialized: Dict[str, Any],
+        prompts: List[str],
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "llm.start", EventType.AGENT_START,
+            "llm.start",
+            EventType.AGENT_START,
             {
                 "model": (serialized or {}).get("name", "unknown"),
                 "prompt_count": len(prompts),
             },
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     async def on_llm_end(
-        self, response: LLMResult,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        response: LLMResult,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         gen_count = len(response.generations) if response.generations else 0
         self._publish(
-            "llm.end", EventType.AGENT_END,
+            "llm.end",
+            EventType.AGENT_END,
             {"generations": gen_count},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     async def on_llm_new_token(
-        self, token: str,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        token: str,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "llm.token", EventType.AGENT_LLM_TOKEN,
+            "llm.token",
+            EventType.AGENT_LLM_TOKEN,
             {"token": token},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     async def on_tool_start(
-        self, serialized: Dict[str, Any], input_str: str,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        serialized: Dict[str, Any],
+        input_str: str,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         tool_name = (serialized or {}).get("name", "unknown")
         self._publish(
-            f"tool.{tool_name}.start", EventType.AGENT_TOOL_CALL_START,
+            f"tool.{tool_name}.start",
+            EventType.AGENT_TOOL_CALL_START,
             {"tool_name": tool_name, "input": input_str[:2000]},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     async def on_tool_end(
-        self, output: Any,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        output: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "tool.end", EventType.AGENT_TOOL_CALL_END,
+            "tool.end",
+            EventType.AGENT_TOOL_CALL_END,
             {"output": safe_serialize(output)},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     async def on_tool_error(
-        self, error: BaseException,
-        *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any,
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: Optional[UUID] = None,
+        **kwargs: Any,
     ) -> None:
         self._publish(
-            "tool.error", EventType.AGENT_ERROR,
+            "tool.error",
+            EventType.AGENT_ERROR,
             {"error": str(error), "error_type": type(error).__name__},
-            run_id=run_id, parent_run_id=parent_run_id,
+            run_id=run_id,
+            parent_run_id=parent_run_id,
         )
 
     def _publish(
-        self, identifier: str, event_type: EventType, payload: Dict[str, Any],
-        *, run_id: Optional[UUID] = None, parent_run_id: Optional[UUID] = None,
+        self,
+        identifier: str,
+        event_type: EventType,
+        payload: Dict[str, Any],
+        *,
+        run_id: Optional[UUID] = None,
+        parent_run_id: Optional[UUID] = None,
     ) -> None:
         try:
             kwargs = _publish_kwargs(

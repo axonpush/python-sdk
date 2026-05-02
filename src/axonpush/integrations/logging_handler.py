@@ -30,6 +30,7 @@ Usage::
 
     logging.error("connection refused", extra={"user_id": 42})
 """
+
 from __future__ import annotations
 
 import logging
@@ -81,10 +82,29 @@ _internal_logger = logging.getLogger("axonpush")
 
 _STD_LOGRECORD_ATTRS = frozenset(
     {
-        "args", "asctime", "created", "exc_info", "exc_text", "filename",
-        "funcName", "levelname", "levelno", "lineno", "module", "msecs",
-        "message", "msg", "name", "pathname", "process", "processName",
-        "relativeCreated", "stack_info", "thread", "threadName", "taskName",
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "module",
+        "msecs",
+        "message",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "thread",
+        "threadName",
+        "taskName",
     }
 )
 
@@ -103,9 +123,7 @@ DEFAULT_EXCLUDED_LOGGERS: Tuple[str, ...] = (
 class _SelfRecursionFilter(logging.Filter):
     """Drops records whose logger name matches an excluded name or prefix."""
 
-    def __init__(
-        self, exact: FrozenSet[str], prefixes: Tuple[str, ...]
-    ) -> None:
+    def __init__(self, exact: FrozenSet[str], prefixes: Tuple[str, ...]) -> None:
         super().__init__()
         self._exact = exact
         self._prefixes = prefixes
@@ -146,8 +164,7 @@ class AxonPushLoggingHandler(logging.Handler):
         has_credentials = any(x is not None for x in (api_key, tenant_id, base_url))
         if client is not None and has_credentials:
             raise ValueError(
-                "AxonPushLoggingHandler: pass either client= or "
-                "api_key=/tenant_id=, not both"
+                "AxonPushLoggingHandler: pass either client= or api_key=/tenant_id=, not both"
             )
 
         if client is None:
@@ -171,9 +188,7 @@ class AxonPushLoggingHandler(logging.Handler):
 
         resolved_mode = mode or "background"
         if resolved_mode not in ("background", "sync"):
-            raise ValueError(
-                f"mode must be 'background' or 'sync', got {resolved_mode!r}"
-            )
+            raise ValueError(f"mode must be 'background' or 'sync', got {resolved_mode!r}")
         if resolved_mode == "background":
             if is_async_client(self._client):
                 self._publisher: Optional[BackgroundPublisher] = None
@@ -266,9 +281,7 @@ class AxonPushLoggingHandler(logging.Handler):
 
             trace = current_trace() or get_or_create_trace()
 
-            event_type = (
-                EventType.APP_LOG if self._source == "app" else EventType.AGENT_LOG
-            )
+            event_type = EventType.APP_LOG if self._source == "app" else EventType.AGENT_LOG
 
             publish_kwargs: Dict[str, Any] = {
                 "identifier": record.name,

@@ -5,6 +5,7 @@ contract (single ``sentry_sdk.init`` call with the right kwargs).
 These tests do NOT require ``sentry-sdk`` to be installed. A stub module is
 injected via ``sys.modules`` so the integration's ``import sentry_sdk`` call
 binds to the stub."""
+
 from __future__ import annotations
 
 import sys

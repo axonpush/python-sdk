@@ -1236,6 +1236,85 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "payloadFilter",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Page size, 1-1000. Defaults to 100.",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "required": false,
+            "in": "query",
+            "description": "ISO 8601 datetime (exclusive upper bound).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "required": false,
+            "in": "query",
+            "description": "ISO 8601 datetime (inclusive lower bound).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "traceId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agentId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "eventType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "environment",
+            "required": false,
+            "in": "query",
+            "description": "Environment slug. Resolved server-side to environmentId.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1258,7 +1337,115 @@
     "/events/search": {
       "get": {
         "operationId": "EventsSearchController_search",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "source",
+            "required": false,
+            "in": "query",
+            "description": "Filter by ingest source (e.g. \"app\", \"sentry\", \"otlp\").",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "payloadFilter",
+            "required": false,
+            "in": "query",
+            "description": "JSON-path / dotted filter applied to the event payload.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Page size, 1-1000. Defaults to 100.",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Opaque pagination cursor returned by a previous call.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "until",
+            "required": false,
+            "in": "query",
+            "description": "ISO 8601 datetime (exclusive upper bound).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "required": false,
+            "in": "query",
+            "description": "ISO 8601 datetime (inclusive lower bound).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "traceId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agentId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "eventType",
+            "required": false,
+            "in": "query",
+            "description": "Repeat or comma-separate to filter by multiple event types.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "channelId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "appId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "environment",
+            "required": false,
+            "in": "query",
+            "description": "Environment slug. Resolved server-side to environmentId.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",

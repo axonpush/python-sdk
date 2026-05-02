@@ -1,4 +1,5 @@
 """Internal helpers shared across integrations."""
+
 from __future__ import annotations
 
 import asyncio

@@ -13,6 +13,7 @@ Install::
 
     pip install axonpush[crewai]
 """
+
 from __future__ import annotations
 
 import logging
@@ -55,7 +56,9 @@ class AxonPushCrewCallbacks:
         resolved_mode = mode or "background"
         if resolved_mode == "background":
             self._publisher: Optional[BackgroundPublisher] = BackgroundPublisher(
-                client, queue_size=queue_size, shutdown_timeout=shutdown_timeout,
+                client,
+                queue_size=queue_size,
+                shutdown_timeout=shutdown_timeout,
             )
         else:
             self._publisher = None

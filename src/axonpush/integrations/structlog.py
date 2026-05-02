@@ -34,6 +34,7 @@ Usage::
     log = structlog.get_logger()
     log.error("connection refused", user_id=42)
 """
+
 from __future__ import annotations
 
 import logging as _stdlib_logging
@@ -102,16 +103,12 @@ class _AxonPushStructlogProcessor:
             raise ValueError(f"source must be 'agent' or 'app', got {source!r}")
         resolved_mode = mode or "background"
         if resolved_mode not in ("background", "sync"):
-            raise ValueError(
-                f"mode must be 'background' or 'sync', got {resolved_mode!r}"
-            )
+            raise ValueError(f"mode must be 'background' or 'sync', got {resolved_mode!r}")
 
         self._client = client
         self._channel_id = coerce_channel_id(channel_id)
         self._agent_id = agent_id
-        self._event_type = (
-            EventType.APP_LOG if source == "app" else EventType.AGENT_LOG
-        )
+        self._event_type = EventType.APP_LOG if source == "app" else EventType.AGENT_LOG
         self._resource = build_resource(service_name, service_version, environment)
 
         if resolved_mode == "background":

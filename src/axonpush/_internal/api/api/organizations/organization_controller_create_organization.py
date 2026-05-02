@@ -1,6 +1,5 @@
 from http import HTTPStatus
-from typing import Any, cast
-from urllib.parse import quote
+from typing import Any
 
 import httpx
 
@@ -8,7 +7,7 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.create_organization_dto import CreateOrganizationDto
 from ...models.organization_create_response_dto import OrganizationCreateResponseDto
-from ...types import UNSET, Response
+from ...types import Response
 
 
 def _get_kwargs(

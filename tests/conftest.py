@@ -17,6 +17,7 @@ variables so they work both on a developer laptop and in CI:
     AXONPUSH_TENANT_ID   default: 1
     AXONPUSH_APP_ID      default: 1
 """
+
 from __future__ import annotations
 
 import os

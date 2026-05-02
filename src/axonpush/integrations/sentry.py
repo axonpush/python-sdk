@@ -29,6 +29,7 @@ Environment variable fallbacks (when args are omitted):
     - host:        AXONPUSH_HOST (default: api.axonpush.xyz)
     - environment: AXONPUSH_ENVIRONMENT, then SENTRY_ENVIRONMENT, then APP_ENV, then ENV
 """
+
 from __future__ import annotations
 
 import logging
@@ -50,11 +51,7 @@ _ENV_PRECEDENCE = (
 def build_dsn(api_key: str, channel_id: int | str, host: str) -> str:
     """Format an AxonPush-flavoured Sentry DSN."""
     project = coerce_channel_id(channel_id)
-    scheme = (
-        "http"
-        if host.startswith("localhost") or host.startswith("127.")
-        else "https"
-    )
+    scheme = "http" if host.startswith("localhost") or host.startswith("127.") else "https"
     return f"{scheme}://{api_key}@{host}/{project}"
 
 
@@ -100,8 +97,7 @@ def install_sentry(
         import sentry_sdk
     except ImportError as exc:
         raise ImportError(
-            "install_sentry requires sentry-sdk. "
-            "Install it with `pip install sentry-sdk`.",
+            "install_sentry requires sentry-sdk. Install it with `pip install sentry-sdk`.",
         ) from exc
 
     if dsn is None:

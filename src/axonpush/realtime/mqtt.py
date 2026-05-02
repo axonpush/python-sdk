@@ -120,9 +120,7 @@ class RealtimeClient:
         self._mqtt = mqtt
         mqtt.connect_async(host, port, keepalive=self._keepalive)
 
-    def _on_connect(
-        self, client: Any, userdata: Any, flags: Any, rc: int, *_: Any
-    ) -> None:
+    def _on_connect(self, client: Any, userdata: Any, flags: Any, rc: int, *_: Any) -> None:
         if rc != 0:
             logger.warning("MQTT CONNACK rc=%s — connection rejected", rc)
             return

@@ -15,12 +15,8 @@ from axonpush._internal.api.models.iot_credentials_response_dto import (
 def _credentials_dto(*, expires_in_seconds: int = 3600) -> IotCredentialsResponseDto:
     return IotCredentialsResponseDto(
         endpoint="abc-ats.iot.us-east-1.amazonaws.com",
-        presigned_wss_url=(
-            "wss://abc-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz=token"
-        ),
-        expires_at=(
-            datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
-        ).isoformat(),
+        presigned_wss_url=("wss://abc-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz=token"),
+        expires_at=(datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)).isoformat(),
         topic_prefix="axonpush/org_1",
         env_slug="default",
         topic_template="axonpush/org_1/{envSlug}/{appId}/{channelId}/{eventType}/{agentId}",

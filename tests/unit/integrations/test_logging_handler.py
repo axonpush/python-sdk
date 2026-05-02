@@ -4,6 +4,7 @@ Uses the duck-typed :class:`FakeSyncClient` so the tests don't depend on
 Stream A's transport or Stream B's resources — just on the
 ``client.events.publish`` contract.
 """
+
 from __future__ import annotations
 
 import logging
@@ -58,9 +59,7 @@ class TestPayload:
         self, fake_sync_client: FakeSyncClient, isolated_logger: logging.Logger
     ) -> None:
         isolated_logger.addHandler(
-            AxonPushLoggingHandler(
-                client=fake_sync_client, channel_id="ch_x", mode="sync"
-            )
+            AxonPushLoggingHandler(client=fake_sync_client, channel_id="ch_x", mode="sync")
         )
         cases = [
             (isolated_logger.debug, "d", 5, "DEBUG"),
@@ -80,9 +79,7 @@ class TestPayload:
         self, fake_sync_client: FakeSyncClient, isolated_logger: logging.Logger
     ) -> None:
         isolated_logger.addHandler(
-            AxonPushLoggingHandler(
-                client=fake_sync_client, channel_id="ch_x", mode="sync"
-            )
+            AxonPushLoggingHandler(client=fake_sync_client, channel_id="ch_x", mode="sync")
         )
         isolated_logger.error("auth fail", extra={"user_id": 42, "ip": "1.2.3.4"})
         attrs = fake_sync_client.events.calls[0]["payload"]["attributes"]
@@ -105,9 +102,7 @@ class TestPayload:
         isolated_logger.info("agent thinking")
         assert fake_sync_client.events.calls[0]["event_type"].value == "agent.log"
 
-    def test_invalid_source_rejected(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_invalid_source_rejected(self, fake_sync_client: FakeSyncClient) -> None:
         with pytest.raises(ValueError, match="source must be"):
             AxonPushLoggingHandler(
                 client=fake_sync_client,
@@ -119,16 +114,16 @@ class TestPayload:
     def test_invalid_mode_rejected(self, fake_sync_client: FakeSyncClient) -> None:
         with pytest.raises(ValueError, match="mode must be"):
             AxonPushLoggingHandler(
-                client=fake_sync_client, channel_id="ch_x", mode="bogus",  # type: ignore[arg-type]
+                client=fake_sync_client,
+                channel_id="ch_x",
+                mode="bogus",  # type: ignore[arg-type]
             )
 
     def test_resource_omitted_when_no_service_info(
         self, fake_sync_client: FakeSyncClient, isolated_logger: logging.Logger
     ) -> None:
         isolated_logger.addHandler(
-            AxonPushLoggingHandler(
-                client=fake_sync_client, channel_id="ch_x", mode="sync"
-            )
+            AxonPushLoggingHandler(client=fake_sync_client, channel_id="ch_x", mode="sync")
         )
         isolated_logger.info("plain")
         assert "resource" not in fake_sync_client.events.calls[0]["payload"]
@@ -137,9 +132,7 @@ class TestPayload:
         self, fake_sync_client: FakeSyncClient, isolated_logger: logging.Logger
     ) -> None:
         fake_sync_client.events.exception = RuntimeError("nope")
-        handler = AxonPushLoggingHandler(
-            client=fake_sync_client, channel_id="ch_x", mode="sync"
-        )
+        handler = AxonPushLoggingHandler(client=fake_sync_client, channel_id="ch_x", mode="sync")
         handler.handleError = lambda record: None  # type: ignore[method-assign]
         isolated_logger.addHandler(handler)
         # must not raise
@@ -147,13 +140,9 @@ class TestPayload:
 
 
 class TestChannelIdCoercion:
-    def test_int_channel_id_emits_deprecation(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_int_channel_id_emits_deprecation(self, fake_sync_client: FakeSyncClient) -> None:
         with pytest.warns(DeprecationWarning, match="channel_id as int"):
-            handler = AxonPushLoggingHandler(
-                client=fake_sync_client, channel_id=42, mode="sync"
-            )
+            handler = AxonPushLoggingHandler(client=fake_sync_client, channel_id=42, mode="sync")
         # And the publish still goes out with the stringified id.
         log = logging.getLogger("axonpush.test.coerce")
         log.propagate = False
@@ -180,16 +169,12 @@ class TestExclusionAndReentrancy:
         )
 
     def test_exact_match_excluded(self) -> None:
-        f = _SelfRecursionFilter(
-            exact=frozenset({"axonpush"}), prefixes=("httpx",)
-        )
+        f = _SelfRecursionFilter(exact=frozenset({"axonpush"}), prefixes=("httpx",))
         assert f.filter(self._make_record("axonpush")) is False
         assert f.filter(self._make_record("axonpush.user.foo")) is True
 
     def test_prefix_match_excluded(self) -> None:
-        f = _SelfRecursionFilter(
-            exact=frozenset(), prefixes=("httpx", "httpcore")
-        )
+        f = _SelfRecursionFilter(exact=frozenset(), prefixes=("httpx", "httpcore"))
         assert f.filter(self._make_record("httpx._client")) is False
         assert f.filter(self._make_record("httpcore.connection")) is False
         assert f.filter(self._make_record("myapp.module")) is True
@@ -212,9 +197,7 @@ class TestExclusionAndReentrancy:
     ) -> None:
         from axonpush.integrations import _publisher as pub_mod
 
-        handler = AxonPushLoggingHandler(
-            client=fake_sync_client, channel_id="ch_x", mode="sync"
-        )
+        handler = AxonPushLoggingHandler(client=fake_sync_client, channel_id="ch_x", mode="sync")
         isolated_logger.addHandler(handler)
         token = pub_mod._in_publisher_path.set(True)
         try:
@@ -225,9 +208,7 @@ class TestExclusionAndReentrancy:
 
 
 class TestDictConfigConstructor:
-    def test_builds_client_from_credential_kwargs(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_builds_client_from_credential_kwargs(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict = {}
 
         class FakeAxon:

@@ -1,4 +1,5 @@
 """Unit tests for the DeepAgents callback handlers."""
+
 from __future__ import annotations
 
 import uuid
@@ -44,23 +45,15 @@ class TestToolClassification:
 
 
 class TestSyncHandler:
-    def test_chain_start_uses_run_id_as_span(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
-        h = AxonPushDeepAgentHandler(
-            fake_sync_client, "ch_x", mode="sync"
-        )
+    def test_chain_start_uses_run_id_as_span(self, fake_sync_client: FakeSyncClient) -> None:
+        h = AxonPushDeepAgentHandler(fake_sync_client, "ch_x", mode="sync")
         run_id = uuid.uuid4()
         h.on_chain_start({"name": "chain"}, {}, run_id=run_id)
         call = fake_sync_client.events.calls[0]
         assert call["span_id"] == str(run_id)
 
-    def test_subagent_emits_handoff(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
-        h = AxonPushDeepAgentHandler(
-            fake_sync_client, "ch_x", mode="sync"
-        )
+    def test_subagent_emits_handoff(self, fake_sync_client: FakeSyncClient) -> None:
+        h = AxonPushDeepAgentHandler(fake_sync_client, "ch_x", mode="sync")
         h.on_tool_start({"name": "task"}, "spawn child", run_id=uuid.uuid4())
         call = fake_sync_client.events.calls[0]
         assert call["identifier"] == "subagent.spawn"
@@ -72,12 +65,8 @@ class TestSyncHandler:
 
 
 class TestAsyncHandler:
-    async def test_chain_start_via_background(
-        self, fake_async_client: FakeAsyncClient
-    ) -> None:
-        h = AsyncAxonPushDeepAgentHandler(
-            fake_async_client, "ch_x", mode="background"
-        )
+    async def test_chain_start_via_background(self, fake_async_client: FakeAsyncClient) -> None:
+        h = AsyncAxonPushDeepAgentHandler(fake_async_client, "ch_x", mode="background")
         await h.on_chain_start({"name": "x"}, {}, run_id=uuid.uuid4())
         await h.aflush(timeout=1.0)
         assert len(fake_async_client.events.calls) == 1

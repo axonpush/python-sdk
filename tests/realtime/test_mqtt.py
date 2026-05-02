@@ -218,9 +218,7 @@ def test_failing_callback_does_not_break_others(fake_facade, fake_paho) -> None:
     def bad(_msg: Any) -> None:
         raise RuntimeError("boom")
 
-    rt.subscribe(
-        "ch_5", app_id="app_1", event_type="agent.message", callback=bad
-    )
+    rt.subscribe("ch_5", app_id="app_1", event_type="agent.message", callback=bad)
     rt.subscribe(
         "ch_5",
         app_id="app_1",
@@ -266,9 +264,7 @@ def test_invalid_json_message_is_dropped(fake_facade, fake_paho) -> None:
     rt.disconnect()
 
 
-def test_refresh_only_scheduled_after_successful_connack(
-    fake_facade, fake_paho
-) -> None:
+def test_refresh_only_scheduled_after_successful_connack(fake_facade, fake_paho) -> None:
     """Refresh-task race fix: refresh timer is created **only** after the
     broker confirms ``rc=0``. If CONNACK never arrives, ``connect()`` raises
     and no timer is left running with stale credentials."""
@@ -279,9 +275,7 @@ def test_refresh_only_scheduled_after_successful_connack(
     assert rt._refresh_timer is None
 
 
-def test_refresh_not_scheduled_on_connack_failure(
-    fake_facade, fake_paho
-) -> None:
+def test_refresh_not_scheduled_on_connack_failure(fake_facade, fake_paho) -> None:
     """``rc != 0`` means broker rejected the connection. The SDK must
     not schedule a refresh against credentials the broker refused."""
     _FakePaho.connack_rc = 5  # Not authorized
@@ -301,9 +295,7 @@ def test_disconnect_cancels_refresh_timer(fake_facade, fake_paho) -> None:
     assert not timer.is_alive() or timer.finished.is_set()
 
 
-def test_subscribe_only_calls_paho_when_connected(
-    fake_facade, fake_paho
-) -> None:
+def test_subscribe_only_calls_paho_when_connected(fake_facade, fake_paho) -> None:
     rt = RealtimeClient(fake_facade)
     rt.connect()
     # Force-clear the connected flag so the call short-circuits.

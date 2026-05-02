@@ -21,6 +21,7 @@ Usage::
     hooks = AxonPushRunHooks(client, channel_id="ch_...")
     result = await Runner.run(agent, input="...", hooks=hooks)
 """
+
 from __future__ import annotations
 
 import logging
@@ -78,12 +79,8 @@ class AxonPushRunHooks(RunHooks[Any]):
         else:
             self._publisher = None
 
-    async def on_agent_start(
-        self, context: RunContextWrapper[Any], agent: Agent[Any]
-    ) -> None:
-        agent_name = (
-            getattr(agent, "name", None) or self._default_agent_id or "openai-agent"
-        )
+    async def on_agent_start(self, context: RunContextWrapper[Any], agent: Agent[Any]) -> None:
+        agent_name = getattr(agent, "name", None) or self._default_agent_id or "openai-agent"
         self._publish(
             "agent.run.start",
             EventType.AGENT_START,
@@ -94,9 +91,7 @@ class AxonPushRunHooks(RunHooks[Any]):
     async def on_agent_end(
         self, context: RunContextWrapper[Any], agent: Agent[Any], output: str
     ) -> None:
-        agent_name = (
-            getattr(agent, "name", None) or self._default_agent_id or "openai-agent"
-        )
+        agent_name = getattr(agent, "name", None) or self._default_agent_id or "openai-agent"
         self._publish(
             "agent.run.end",
             EventType.AGENT_END,

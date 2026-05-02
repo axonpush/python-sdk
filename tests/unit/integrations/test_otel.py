@@ -1,4 +1,5 @@
 """Unit tests for the OpenTelemetry SpanExporter."""
+
 from __future__ import annotations
 
 import pytest
@@ -44,12 +45,8 @@ class TestOTelExporter:
         assert call["payload"]["attributes"]["http.method"] == "POST"
         assert call["metadata"]["framework"] == "opentelemetry"
 
-    def test_parent_span_id_propagated(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
-        exporter = AxonPushSpanExporter(
-            client=fake_sync_client, channel_id="ch_x", mode="sync"
-        )
+    def test_parent_span_id_propagated(self, fake_sync_client: FakeSyncClient) -> None:
+        exporter = AxonPushSpanExporter(client=fake_sync_client, channel_id="ch_x", mode="sync")
         provider = _provider_with(exporter)
         tracer = provider.get_tracer(__name__)
         with tracer.start_as_current_span("parent"):
@@ -72,22 +69,14 @@ class TestOTelExporter:
                 mode="bogus",  # type: ignore[arg-type]
             )
 
-    def test_int_channel_id_emits_deprecation(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_int_channel_id_emits_deprecation(self, fake_sync_client: FakeSyncClient) -> None:
         with pytest.warns(DeprecationWarning):
-            AxonPushSpanExporter(
-                client=fake_sync_client, channel_id=99, mode="sync"
-            )
+            AxonPushSpanExporter(client=fake_sync_client, channel_id=99, mode="sync")
 
-    def test_export_failure_returned_as_failure(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_export_failure_returned_as_failure(self, fake_sync_client: FakeSyncClient) -> None:
         # We have to inject a faulty export by feeding the exporter a span
         # whose attribute access raises. Easiest: monkeypatch _export_one.
-        exporter = AxonPushSpanExporter(
-            client=fake_sync_client, channel_id="ch_x", mode="sync"
-        )
+        exporter = AxonPushSpanExporter(client=fake_sync_client, channel_id="ch_x", mode="sync")
 
         class BoomSpan:
             def __getattr__(self, name: str) -> object:
@@ -110,10 +99,6 @@ class TestOTelExporter:
         provider.shutdown()
         assert fake_sync_client.events.calls[0]["environment"] == "staging"
 
-    def test_force_flush_returns_true(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
-        exporter = AxonPushSpanExporter(
-            client=fake_sync_client, channel_id="ch_x", mode="sync"
-        )
+    def test_force_flush_returns_true(self, fake_sync_client: FakeSyncClient) -> None:
+        exporter = AxonPushSpanExporter(client=fake_sync_client, channel_id="ch_x", mode="sync")
         assert exporter.force_flush(1) is True

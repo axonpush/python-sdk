@@ -1,4 +1,5 @@
 """Unit tests for the Loguru sink."""
+
 from __future__ import annotations
 
 from typing import Iterator
@@ -39,12 +40,8 @@ class TestLoguruSink:
         assert call["payload"]["severityText"] == "ERROR"
         assert call["metadata"]["framework"] == "loguru"
 
-    def test_extra_kwargs_become_attributes(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
-        sink = create_axonpush_loguru_sink(
-            client=fake_sync_client, channel_id="ch_x", mode="sync"
-        )
+    def test_extra_kwargs_become_attributes(self, fake_sync_client: FakeSyncClient) -> None:
+        sink = create_axonpush_loguru_sink(client=fake_sync_client, channel_id="ch_x", mode="sync")
         loguru_logger.add(sink, serialize=True)
         loguru_logger.bind(user_id=42).info("hi")
         attrs = fake_sync_client.events.calls[0]["payload"]["attributes"]
@@ -59,9 +56,7 @@ class TestLoguruSink:
         )
         loguru_logger.add(sink, serialize=True)
         loguru_logger.info("a")
-        assert (
-            fake_sync_client.events.calls[0]["event_type"].value == "agent.log"
-        )
+        assert fake_sync_client.events.calls[0]["event_type"].value == "agent.log"
 
     def test_invalid_source_rejected(self, fake_sync_client: FakeSyncClient) -> None:
         with pytest.raises(ValueError, match="source must be"):
@@ -80,35 +75,23 @@ class TestLoguruSink:
                 mode="bogus",  # type: ignore[arg-type]
             )
 
-    def test_int_channel_id_emits_deprecation(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_int_channel_id_emits_deprecation(self, fake_sync_client: FakeSyncClient) -> None:
         with pytest.warns(DeprecationWarning):
-            sink = create_axonpush_loguru_sink(
-                client=fake_sync_client, channel_id=42, mode="sync"
-            )
+            sink = create_axonpush_loguru_sink(client=fake_sync_client, channel_id=42, mode="sync")
         loguru_logger.add(sink, serialize=True)
         loguru_logger.info("x")
         assert fake_sync_client.events.calls[0]["channel_id"] == "42"
 
-    def test_publish_exception_swallowed(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_publish_exception_swallowed(self, fake_sync_client: FakeSyncClient) -> None:
         fake_sync_client.events.exception = RuntimeError("nope")
-        sink = create_axonpush_loguru_sink(
-            client=fake_sync_client, channel_id="ch_x", mode="sync"
-        )
+        sink = create_axonpush_loguru_sink(client=fake_sync_client, channel_id="ch_x", mode="sync")
         loguru_logger.add(sink, serialize=True)
         loguru_logger.error("survives")
 
-    def test_reentrancy_guard_drops_records(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_reentrancy_guard_drops_records(self, fake_sync_client: FakeSyncClient) -> None:
         from axonpush.integrations import _publisher as p
 
-        sink = create_axonpush_loguru_sink(
-            client=fake_sync_client, channel_id="ch_x", mode="sync"
-        )
+        sink = create_axonpush_loguru_sink(client=fake_sync_client, channel_id="ch_x", mode="sync")
         loguru_logger.add(sink, serialize=True)
         token = p._in_publisher_path.set(True)
         try:

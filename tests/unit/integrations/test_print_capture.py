@@ -1,4 +1,5 @@
 """Unit tests for ``setup_print_capture``."""
+
 from __future__ import annotations
 
 import sys
@@ -25,9 +26,7 @@ def _last_call(client: FakeSyncClient) -> dict:
 
 
 class TestPrintCapture:
-    def test_print_emits_one_event_per_line(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_print_emits_one_event_per_line(self, fake_sync_client: FakeSyncClient) -> None:
         handle = setup_print_capture(fake_sync_client, "ch_x", mode="sync")
         try:
             print("hello")
@@ -46,9 +45,7 @@ class TestPrintCapture:
         assert call["payload"]["severityText"] == "ERROR"
         assert call["payload"]["severityNumber"] == 17
 
-    def test_partial_line_buffered_until_newline(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_partial_line_buffered_until_newline(self, fake_sync_client: FakeSyncClient) -> None:
         handle = setup_print_capture(fake_sync_client, "ch_x", mode="sync")
         try:
             sys.stdout.write("partial")
@@ -90,21 +87,15 @@ class TestPrintCapture:
         assert sys.stdout is orig_out
         assert _last_call(fake_sync_client)["payload"]["body"] == "inside"
 
-    def test_event_type_app_when_source_app(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
-        handle = setup_print_capture(
-            fake_sync_client, "ch_x", source="app", mode="sync"
-        )
+    def test_event_type_app_when_source_app(self, fake_sync_client: FakeSyncClient) -> None:
+        handle = setup_print_capture(fake_sync_client, "ch_x", source="app", mode="sync")
         try:
             print("x")
         finally:
             handle.unpatch()
         assert _last_call(fake_sync_client)["event_type"].value == "app.log"
 
-    def test_event_type_agent_by_default(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_event_type_agent_by_default(self, fake_sync_client: FakeSyncClient) -> None:
         handle = setup_print_capture(fake_sync_client, "ch_x", mode="sync")
         try:
             print("x")
@@ -116,9 +107,7 @@ class TestPrintCapture:
         with pytest.raises(ValueError, match="source must be"):
             setup_print_capture(fake_sync_client, "ch_x", source="bogus", mode="sync")
 
-    def test_publish_failure_does_not_crash_print(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_publish_failure_does_not_crash_print(self, fake_sync_client: FakeSyncClient) -> None:
         fake_sync_client.events.exception = RuntimeError("nope")
         handle = setup_print_capture(fake_sync_client, "ch_x", mode="sync")
         try:
@@ -126,9 +115,7 @@ class TestPrintCapture:
         finally:
             handle.unpatch()
 
-    def test_flush_emits_buffered_partial_line(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_flush_emits_buffered_partial_line(self, fake_sync_client: FakeSyncClient) -> None:
         handle = setup_print_capture(fake_sync_client, "ch_x", mode="sync")
         try:
             sys.stdout.write("no newline")
@@ -151,9 +138,7 @@ class TestChannelCoercion:
 
 
 class TestAtexitHook:
-    def test_handle_registered_in_live_set(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_handle_registered_in_live_set(self, fake_sync_client: FakeSyncClient) -> None:
         from axonpush.integrations import print_capture as pc
 
         handle = setup_print_capture(fake_sync_client, "ch_x", mode="sync")
@@ -162,9 +147,7 @@ class TestAtexitHook:
         finally:
             handle.unpatch()
 
-    def test_unpatch_all_restores_streams(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_unpatch_all_restores_streams(self, fake_sync_client: FakeSyncClient) -> None:
         from axonpush.integrations import print_capture as pc
 
         orig_out = sys.stdout

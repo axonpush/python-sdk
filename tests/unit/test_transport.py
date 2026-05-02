@@ -135,9 +135,7 @@ class TestBuildSyncClient:
         settings = _settings()
         client = build_sync_client(settings)
         with respx.mock(base_url="http://api.example.test") as router:
-            router.get("/health").mock(
-                return_value=httpx.Response(503, json={"message": "down"})
-            )
+            router.get("/health").mock(return_value=httpx.Response(503, json={"message": "down"}))
             with pytest.raises(ServerError):
                 client.get_httpx_client().get("/health")
         client.get_httpx_client().close()
@@ -160,9 +158,7 @@ class TestBuildAsyncClient:
         settings = _settings()
         client = build_async_client(settings)
         with respx.mock(base_url="http://api.example.test") as router:
-            router.get("/health").mock(
-                return_value=httpx.Response(401, json={"message": "nope"})
-            )
+            router.get("/health").mock(return_value=httpx.Response(401, json={"message": "nope"}))
             with pytest.raises(AuthenticationError):
                 await client.get_async_httpx_client().get("/health")
         await client.get_async_httpx_client().aclose()
@@ -200,9 +196,7 @@ class TestCallWithRetriesSync:
     def test_retries_on_server_error_then_succeeds(self) -> None:
         op = _Op([ServerError("boom", status_code=503), "ok"])
         sleeps: list[float] = []
-        result = call_with_retries_sync(
-            op, max_retries=3, sleep=lambda s: sleeps.append(s)
-        )
+        result = call_with_retries_sync(op, max_retries=3, sleep=lambda s: sleeps.append(s))
         assert result == "ok"
         assert op.calls == 2
         assert sleeps == [0.25]
@@ -219,18 +213,14 @@ class TestCallWithRetriesSync:
             ]
         )
         sleeps: list[float] = []
-        result = call_with_retries_sync(
-            op, max_retries=5, sleep=lambda s: sleeps.append(s)
-        )
+        result = call_with_retries_sync(op, max_retries=5, sleep=lambda s: sleeps.append(s))
         assert result == "ok"
         assert sleeps == [0.25, 0.5, 1.0, 2.0, 4.0]
 
     def test_rate_limit_uses_retry_after(self) -> None:
         op = _Op([RateLimitError("slow", retry_after=7.0), "ok"])
         sleeps: list[float] = []
-        result = call_with_retries_sync(
-            op, max_retries=3, sleep=lambda s: sleeps.append(s)
-        )
+        result = call_with_retries_sync(op, max_retries=3, sleep=lambda s: sleeps.append(s))
         assert result == "ok"
         assert sleeps == [7.0]
 

@@ -34,6 +34,7 @@ drop counter is rate-limited to one warning per
 ``DROP_WARNING_INTERVAL_S`` window via the stdlib ``axonpush.publisher``
 logger at WARNING level.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -298,9 +299,7 @@ class AsyncBackgroundPublisher:
             self._worker = loop.create_task(self._worker_loop(self._queue))
         return self._queue
 
-    async def _worker_loop(
-        self, q: "asyncio.Queue[Optional[PublishKwargs]]"
-    ) -> None:
+    async def _worker_loop(self, q: "asyncio.Queue[Optional[PublishKwargs]]") -> None:
         while True:
             item = await q.get()
             try:
@@ -412,8 +411,7 @@ class RqPublisher:
             from rq import Queue, Retry
         except ImportError:
             raise ImportError(
-                "RQ publisher requires the 'rq' extra. "
-                "Install it with: pip install axonpush[rq]"
+                "RQ publisher requires the 'rq' extra. Install it with: pip install axonpush[rq]"
             ) from None
 
         auth = client._auth  # type: ignore[union-attr]

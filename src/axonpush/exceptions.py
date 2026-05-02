@@ -195,9 +195,7 @@ def from_response(
     raw_hint = parsed_body.get("hint")
     hint = raw_hint if isinstance(raw_hint, str) else None
     raw_request_id = parsed_body.get("requestId")
-    request_id = (
-        raw_request_id if isinstance(raw_request_id, str) else headers.get("x-request-id")
-    )
+    request_id = raw_request_id if isinstance(raw_request_id, str) else headers.get("x-request-id")
 
     common: dict[str, Any] = {
         "status_code": status_code,

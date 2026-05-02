@@ -13,6 +13,7 @@ Install::
 
     pip install axonpush[anthropic]
 """
+
 from __future__ import annotations
 
 import logging
@@ -79,7 +80,8 @@ class AxonPushAnthropicTracer:
         elif resolved_mode == "background":
             if is_async_client(client):
                 self._async_publisher = AsyncBackgroundPublisher(
-                    client, max_pending=max_pending,  # type: ignore[arg-type]
+                    client,  # type: ignore[arg-type]
+                    max_pending=max_pending,
                 )
             else:
                 self._sync_publisher = BackgroundPublisher(
@@ -179,7 +181,10 @@ class AxonPushAnthropicTracer:
         }
 
     def _emit_sync(
-        self, identifier: str, event_type: EventType, payload: Dict[str, Any],
+        self,
+        identifier: str,
+        event_type: EventType,
+        payload: Dict[str, Any],
     ) -> None:
         try:
             kwargs = self._publish_kwargs(identifier, event_type, payload)
@@ -195,7 +200,10 @@ class AxonPushAnthropicTracer:
             )
 
     def _emit_async(
-        self, identifier: str, event_type: EventType, payload: Dict[str, Any],
+        self,
+        identifier: str,
+        event_type: EventType,
+        payload: Dict[str, Any],
     ) -> None:
         try:
             kwargs = self._publish_kwargs(identifier, event_type, payload)

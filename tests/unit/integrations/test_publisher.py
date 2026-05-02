@@ -1,4 +1,5 @@
 """Tests for the publisher infrastructure (sync, async, RQ, helpers)."""
+
 from __future__ import annotations
 
 import logging
@@ -111,7 +112,9 @@ class TestBackgroundPublisherOverflow:
     def test_drop_oldest_keeps_newest(self) -> None:
         slow = _SlowSyncClient(delay=0.5)
         pub = BackgroundPublisher(
-            slow, queue_size=2, overflow_policy=OverflowPolicy.DROP_OLDEST,
+            slow,
+            queue_size=2,
+            overflow_policy=OverflowPolicy.DROP_OLDEST,
         )
         try:
             for i in range(10):
@@ -123,7 +126,9 @@ class TestBackgroundPublisherOverflow:
     def test_drop_newest_keeps_oldest(self) -> None:
         slow = _SlowSyncClient(delay=0.5)
         pub = BackgroundPublisher(
-            slow, queue_size=2, overflow_policy=OverflowPolicy.DROP_NEWEST,
+            slow,
+            queue_size=2,
+            overflow_policy=OverflowPolicy.DROP_NEWEST,
         )
         try:
             for i in range(10):
@@ -144,9 +149,7 @@ class TestBackgroundPublisherOverflow:
         finally:
             pub.close(timeout=0.1)
 
-    def test_worker_survives_publish_exception(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_worker_survives_publish_exception(self, caplog: pytest.LogCaptureFixture) -> None:
         client = FakeSyncClient()
         client.events.exception = RuntimeError("boom")
         caplog.set_level(logging.WARNING, logger="axonpush.publisher")
@@ -345,9 +348,7 @@ class TestFlushAfterInvocation:
         fn()
         assert h.last_timeout == 1.5
 
-    def test_handler_flush_error_is_swallowed(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_handler_flush_error_is_swallowed(self, caplog: pytest.LogCaptureFixture) -> None:
         class Exploding:
             def flush(self, timeout: float | None = None) -> None:
                 raise RuntimeError("flush failed")

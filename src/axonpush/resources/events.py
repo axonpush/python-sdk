@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 
 from axonpush._internal.api.api.event import (
     event_controller_create_event as _create_op,
@@ -33,6 +33,11 @@ def _coerce_event_type(
     if isinstance(value, CreateEventDtoEventType):
         return value
     return CreateEventDtoEventType(value)
+
+
+def _filter_kwargs(values: dict[str, Any]) -> dict[str, Any]:
+    """Drop keys whose value is ``None`` so the generated op sees ``UNSET``."""
+    return {k: v for k, v in values.items() if v is not None}
 
 
 def _build_create_dto(
@@ -129,25 +134,108 @@ class Events:
         )
         return self._client._invoke(_create_op.sync, body=body)
 
-    def list(self, channel_id: str) -> EventListResponseDto | None:
+    def list(
+        self,
+        channel_id: str,
+        *,
+        environment: str | None = None,
+        event_type: Sequence[str] | None = None,
+        agent_id: str | None = None,
+        trace_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+        payload_filter: str | None = None,
+    ) -> EventListResponseDto | None:
         """List events for a channel (newest first).
 
         Args:
             channel_id: UUID of the channel.
+            environment: Environment slug; resolved server-side.
+            event_type: One or more event type strings to include.
+            agent_id: Filter by emitting agent UUID.
+            trace_id: Filter by trace UUID.
+            since: ISO 8601 datetime, inclusive lower bound.
+            until: ISO 8601 datetime, exclusive upper bound.
+            cursor: Opaque cursor returned by a previous call.
+            limit: Page size (1-1000, default 100).
+            payload_filter: JSON-path / dotted filter against the event payload.
 
         Returns:
             An :class:`EventListResponseDto` (``data`` + ``meta``) or ``None``
             on a fail-open swallow.
         """
-        return self._client._invoke(_list_op.sync, channel_id=channel_id)
+        kwargs = _filter_kwargs(
+            {
+                "channel_id": channel_id,
+                "environment": environment,
+                "event_type": event_type,
+                "agent_id": agent_id,
+                "trace_id": trace_id,
+                "since": since,
+                "until": until,
+                "cursor": cursor,
+                "limit": limit,
+                "payload_filter": payload_filter,
+            }
+        )
+        return self._client._invoke(_list_op.sync, **kwargs)
 
-    def search(self) -> EventListResponseDto | None:
-        """Search events across channels via ``GET /events/search``.
+    def search(
+        self,
+        *,
+        environment: str | None = None,
+        app_id: str | None = None,
+        channel_id: str | None = None,
+        event_type: Sequence[str] | None = None,
+        agent_id: str | None = None,
+        trace_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+        payload_filter: str | None = None,
+        source: str | None = None,
+    ) -> EventListResponseDto | None:
+        """Search events across an organization via ``GET /events/search``.
+
+        All filters are AND-ed; omit a filter to include everything.
+
+        Args:
+            environment: Environment slug; resolved server-side.
+            app_id: Restrict to a single app UUID.
+            channel_id: Restrict to a single channel UUID.
+            event_type: One or more event type strings.
+            agent_id: Filter by emitting agent UUID.
+            trace_id: Filter by trace UUID.
+            since: ISO 8601 datetime, inclusive lower bound.
+            until: ISO 8601 datetime, exclusive upper bound.
+            cursor: Opaque cursor returned by a previous call.
+            limit: Page size (1-1000, default 100).
+            payload_filter: JSON-path / dotted filter against the event payload.
+            source: Filter by ingest source (``app``, ``sentry``, ``otlp``).
 
         Returns:
             An :class:`EventListResponseDto` or ``None`` on fail-open.
         """
-        return self._client._invoke(_search_op.sync)
+        kwargs = _filter_kwargs(
+            {
+                "environment": environment,
+                "app_id": app_id,
+                "channel_id": channel_id,
+                "event_type": event_type,
+                "agent_id": agent_id,
+                "trace_id": trace_id,
+                "since": since,
+                "until": until,
+                "cursor": cursor,
+                "limit": limit,
+                "payload_filter": payload_filter,
+                "source": source,
+            }
+        )
+        return self._client._invoke(_search_op.sync, **kwargs)
 
 
 class AsyncEvents:
@@ -185,10 +273,68 @@ class AsyncEvents:
         )
         return await self._client._invoke(_create_op.asyncio, body=body)
 
-    async def list(self, channel_id: str) -> EventListResponseDto | None:
+    async def list(
+        self,
+        channel_id: str,
+        *,
+        environment: str | None = None,
+        event_type: Sequence[str] | None = None,
+        agent_id: str | None = None,
+        trace_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+        payload_filter: str | None = None,
+    ) -> EventListResponseDto | None:
         """List events for a channel. See :meth:`Events.list`."""
-        return await self._client._invoke(_list_op.asyncio, channel_id=channel_id)
+        kwargs = _filter_kwargs(
+            {
+                "channel_id": channel_id,
+                "environment": environment,
+                "event_type": event_type,
+                "agent_id": agent_id,
+                "trace_id": trace_id,
+                "since": since,
+                "until": until,
+                "cursor": cursor,
+                "limit": limit,
+                "payload_filter": payload_filter,
+            }
+        )
+        return await self._client._invoke(_list_op.asyncio, **kwargs)
 
-    async def search(self) -> EventListResponseDto | None:
+    async def search(
+        self,
+        *,
+        environment: str | None = None,
+        app_id: str | None = None,
+        channel_id: str | None = None,
+        event_type: Sequence[str] | None = None,
+        agent_id: str | None = None,
+        trace_id: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+        payload_filter: str | None = None,
+        source: str | None = None,
+    ) -> EventListResponseDto | None:
         """Search events. See :meth:`Events.search`."""
-        return await self._client._invoke(_search_op.asyncio)
+        kwargs = _filter_kwargs(
+            {
+                "environment": environment,
+                "app_id": app_id,
+                "channel_id": channel_id,
+                "event_type": event_type,
+                "agent_id": agent_id,
+                "trace_id": trace_id,
+                "since": since,
+                "until": until,
+                "cursor": cursor,
+                "limit": limit,
+                "payload_filter": payload_filter,
+                "source": source,
+            }
+        )
+        return await self._client._invoke(_search_op.asyncio, **kwargs)

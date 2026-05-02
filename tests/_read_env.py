@@ -12,6 +12,7 @@ Usage:
 Always exits 0 so make's `$(shell ...)` gets a clean string back even
 when something is missing.
 """
+
 from __future__ import annotations
 
 import glob

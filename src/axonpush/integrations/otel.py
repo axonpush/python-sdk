@@ -40,6 +40,7 @@ Usage::
     )
     trace.set_tracer_provider(provider)
 """
+
 from __future__ import annotations
 
 import logging as _stdlib_logging
@@ -50,8 +51,7 @@ try:
     from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 except ImportError:
     raise ImportError(
-        "OTel exporter requires the 'otel' extra. "
-        "Install it with: pip install axonpush[otel]"
+        "OTel exporter requires the 'otel' extra. Install it with: pip install axonpush[otel]"
     ) from None
 
 from axonpush._tracing import get_or_create_trace
@@ -96,18 +96,14 @@ class AxonPushSpanExporter(SpanExporter):
     ) -> None:
         resolved_mode = mode or "background"
         if resolved_mode not in ("background", "sync"):
-            raise ValueError(
-                f"mode must be 'background' or 'sync', got {resolved_mode!r}"
-            )
+            raise ValueError(f"mode must be 'background' or 'sync', got {resolved_mode!r}")
 
         self._client = client
         self._channel_id = coerce_channel_id(channel_id)
         self._trace = get_or_create_trace()
         self._environment = environment
 
-        self._resource_override = (
-            build_resource(service_name, service_version, environment) or {}
-        )
+        self._resource_override = build_resource(service_name, service_version, environment) or {}
 
         if resolved_mode == "background":
             if is_async_client(client):
@@ -257,6 +253,4 @@ class AxonPushSpanExporter(SpanExporter):
             result = self._client.events.publish(**publish_kwargs)
             fire_and_forget(result)
         except Exception as exc:
-            _internal_logger.warning(
-                "AxonPush OTel exporter publish failed: %s", exc
-            )
+            _internal_logger.warning("AxonPush OTel exporter publish failed: %s", exc)

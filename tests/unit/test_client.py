@@ -77,9 +77,7 @@ class TestSyncFacadeConstruction:
         c.close()
 
     def test_environment_property(self) -> None:
-        c = AxonPush(
-            api_key="x", tenant_id="1", base_url="http://x.test", environment="prod"
-        )
+        c = AxonPush(api_key="x", tenant_id="1", base_url="http://x.test", environment="prod")
         assert c.environment == "prod"
         c.close()
 
@@ -143,9 +141,7 @@ class TestSyncFacadeBehaviour:
         c.close()
 
     def test_fail_open_false_propagates_connection_error(self) -> None:
-        c = AxonPush(
-            api_key="x", tenant_id="1", base_url="http://x.test", fail_open=False
-        )
+        c = AxonPush(api_key="x", tenant_id="1", base_url="http://x.test", fail_open=False)
         with patch(
             "axonpush.client.call_with_retries_sync",
             side_effect=APIConnectionError("nope"),
@@ -208,9 +204,7 @@ class TestAsyncFacade:
         await c.close()
 
     async def test_context_manager_closes_http_client(self) -> None:
-        async with AsyncAxonPush(
-            api_key="x", tenant_id="1", base_url="http://x.test"
-        ) as c:
+        async with AsyncAxonPush(api_key="x", tenant_id="1", base_url="http://x.test") as c:
             httpx_client = c.http.get_async_httpx_client()
             assert not httpx_client.is_closed
         assert httpx_client.is_closed
@@ -232,9 +226,7 @@ class TestAsyncFacade:
         await c.close()
 
     async def test_async_fail_open_swallows_connection_error(self) -> None:
-        c = AsyncAxonPush(
-            api_key="x", tenant_id="1", base_url="http://x.test", fail_open=True
-        )
+        c = AsyncAxonPush(api_key="x", tenant_id="1", base_url="http://x.test", fail_open=True)
 
         async def fake(*args: Any, **kwargs: Any) -> Any:
             raise APIConnectionError("nope")
@@ -245,9 +237,7 @@ class TestAsyncFacade:
         await c.close()
 
     async def test_async_fail_open_does_not_swallow_other_errors(self) -> None:
-        c = AsyncAxonPush(
-            api_key="x", tenant_id="1", base_url="http://x.test", fail_open=True
-        )
+        c = AsyncAxonPush(api_key="x", tenant_id="1", base_url="http://x.test", fail_open=True)
 
         async def fake(*args: Any, **kwargs: Any) -> Any:
             raise NotFoundError("missing", status_code=404)
@@ -266,9 +256,7 @@ class TestSyncFacadeWire:
             router.get("/health").mock(
                 return_value=httpx.Response(401, json={"message": "bad key"})
             )
-            with AxonPush(
-                api_key="x", tenant_id="1", base_url="http://x.test", max_retries=0
-            ) as c:
+            with AxonPush(api_key="x", tenant_id="1", base_url="http://x.test", max_retries=0) as c:
                 with pytest.raises(AuthenticationError):
                     c.http.get_httpx_client().get("/health")
 

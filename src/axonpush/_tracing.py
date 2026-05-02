@@ -16,9 +16,7 @@ import uuid
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 
-_current_trace: ContextVar["TraceContext | None"] = ContextVar(
-    "_current_trace", default=None
-)
+_current_trace: ContextVar["TraceContext | None"] = ContextVar("_current_trace", default=None)
 
 
 @dataclass

@@ -11,6 +11,7 @@ Instead we expose a duck-typed :class:`FakeSyncClient` /
 call. The integrations rely only on ``client.events.publish(**kwargs)``
 per the v0.0.10 contract, so the fakes are a complete substitute.
 """
+
 from __future__ import annotations
 
 import threading

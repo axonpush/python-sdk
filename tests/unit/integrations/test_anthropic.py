@@ -1,4 +1,5 @@
 """Unit tests for the Anthropic SDK tracer."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -76,12 +77,8 @@ class TestAnthropicTracer:
     def test_create_message_emits_start_then_response(
         self, fake_sync_client: FakeSyncClient
     ) -> None:
-        tracer = AxonPushAnthropicTracer(
-            fake_sync_client, "ch_x", mode="sync"
-        )
-        response = _Response(
-            [_TextBlock("hi")], usage=_Usage(in_t=10, out_t=5)
-        )
+        tracer = AxonPushAnthropicTracer(fake_sync_client, "ch_x", mode="sync")
+        response = _Response([_TextBlock("hi")], usage=_Usage(in_t=10, out_t=5))
         anthropic_client = _FakeAnthropic(response)
         result = tracer.create_message(
             anthropic_client, model="claude-3", messages=[{"role": "user", "content": "x"}]
@@ -97,39 +94,25 @@ class TestAnthropicTracer:
         assert usage_call["payload"]["input_tokens"] == 10
         assert usage_call["payload"]["output_tokens"] == 5
 
-    def test_tool_use_block_emits_tool_call_start(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
-        tracer = AxonPushAnthropicTracer(
-            fake_sync_client, "ch_x", mode="sync"
-        )
-        response = _Response(
-            [_ToolUseBlock("search", "tool_1", {"q": "x"})], usage=None
-        )
+    def test_tool_use_block_emits_tool_call_start(self, fake_sync_client: FakeSyncClient) -> None:
+        tracer = AxonPushAnthropicTracer(fake_sync_client, "ch_x", mode="sync")
+        response = _Response([_ToolUseBlock("search", "tool_1", {"q": "x"})], usage=None)
         tracer.create_message(_FakeAnthropic(response), model="claude-3", messages=[])
         ids = [c["identifier"] for c in fake_sync_client.events.calls]
         assert "tool.search.start" in ids
 
     def test_send_tool_result(self, fake_sync_client: FakeSyncClient) -> None:
-        tracer = AxonPushAnthropicTracer(
-            fake_sync_client, "ch_x", mode="sync"
-        )
+        tracer = AxonPushAnthropicTracer(fake_sync_client, "ch_x", mode="sync")
         tracer.send_tool_result("tool_1", {"x": 1})
         call = fake_sync_client.events.calls[0]
         assert call["identifier"] == "tool.result"
         assert call["event_type"].value == "agent.tool_call.end"
         assert call["payload"]["tool_use_id"] == "tool_1"
 
-    async def test_acreate_message(
-        self, fake_async_client: FakeAsyncClient
-    ) -> None:
-        tracer = AxonPushAnthropicTracer(
-            fake_async_client, "ch_x", mode="background"
-        )
+    async def test_acreate_message(self, fake_async_client: FakeAsyncClient) -> None:
+        tracer = AxonPushAnthropicTracer(fake_async_client, "ch_x", mode="background")
         response = _Response([_TextBlock("hi")], usage=_Usage(1, 2))
-        await tracer.acreate_message(
-            _FakeAnthropicAsync(response), model="claude-3", messages=[]
-        )
+        await tracer.acreate_message(_FakeAnthropicAsync(response), model="claude-3", messages=[])
         await tracer.aflush(timeout=1.0)
         ids = [c["identifier"] for c in fake_async_client.events.calls]
         assert "conversation.turn" in ids

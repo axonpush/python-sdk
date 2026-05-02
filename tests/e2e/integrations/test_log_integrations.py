@@ -5,6 +5,7 @@ event, then asserts the event appears in client.events.list() with the
 expected OTel-shaped payload. This catches payload-shape mismatches that
 the respx-mocked unit tests in tests/unit/integrations/ can't see.
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,9 +30,7 @@ def test_logging_handler_round_trip(client, channel):
     logger.handlers.clear()
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
-    handler = AxonPushLoggingHandler(
-        client=client, channel_id=channel.id, service_name="e2e-svc"
-    )
+    handler = AxonPushLoggingHandler(client=client, channel_id=channel.id, service_name="e2e-svc")
     logger.addHandler(handler)
     try:
         logger.error("connection refused", extra={"user_id": 42})
@@ -70,9 +69,7 @@ def test_loguru_sink_round_trip(client, channel):
     finally:
         loguru_logger.remove()
 
-    matches = _find_by_body(
-        client.events.list(channel.id, limit=50), "loguru round trip"
-    )
+    matches = _find_by_body(client.events.list(channel.id, limit=50), "loguru round trip")
     assert len(matches) == 1
     assert matches[0].event_type == EventType.APP_LOG
     assert matches[0].payload["severityText"] == "ERROR"
@@ -103,9 +100,7 @@ def test_structlog_processor_round_trip(client, channel):
     finally:
         structlog.reset_defaults()
 
-    matches = _find_by_body(
-        client.events.list(channel.id, limit=50), "structlog round trip"
-    )
+    matches = _find_by_body(client.events.list(channel.id, limit=50), "structlog round trip")
     assert len(matches) == 1
     assert matches[0].event_type == EventType.APP_LOG
     assert matches[0].payload["attributes"]["user_id"] == 7
@@ -122,9 +117,7 @@ def test_print_capture_round_trip(client, channel):
         sys.stdout, sys.stderr = orig_out, orig_err
     time.sleep(0.5)
 
-    matches = _find_by_body(
-        client.events.list(channel.id, limit=50), "hello from print_capture"
-    )
+    matches = _find_by_body(client.events.list(channel.id, limit=50), "hello from print_capture")
     assert len(matches) == 1
     assert matches[0].payload["severityText"] == "INFO"
     assert matches[0].payload["severityNumber"] == 9
@@ -142,9 +135,7 @@ def test_otel_span_exporter_round_trip(client, channel):
     provider = TracerProvider()
     provider.add_span_processor(
         SimpleSpanProcessor(
-            AxonPushSpanExporter(
-                client=client, channel_id=channel.id, service_name="otel-e2e"
-            )
+            AxonPushSpanExporter(client=client, channel_id=channel.id, service_name="otel-e2e")
         )
     )
     tracer = provider.get_tracer(__name__)
