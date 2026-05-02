@@ -4,6 +4,26 @@ All notable changes to the AxonPush Python SDK are documented here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.11] – 2026-05-02
+
+`RealtimeClient` and `AsyncRealtimeClient` now connect through the
+backend's IoT custom JWT authorizer. Pre-0.0.11 the client expected
+a SigV4-signed presigned URL and the default ``mqtt`` WS subprotocol;
+the backend has moved to an unsigned custom-authorizer flow that
+needs the JWT in the MQTT CONNECT username and ``mqttv5.0`` as the
+WS subprotocol — without the SDK update every connect attempt is
+rejected with ``AUTHORIZATION_FAILURE``.
+
+### Added
+- ``IotCredentials.authorizer_name`` and ``IotCredentials.auth_token``
+  decoded from ``/auth/iot-credentials``.
+
+### Fixed
+- Sync (paho-mqtt) and async (aiomqtt) clients now pass
+  ``username = credentials.auth_token`` and set
+  ``Sec-WebSocket-Protocol: mqttv5.0`` on the upgrade request. MQTT
+  protocol version bumped to v5 to match.
+
 ## [0.0.10] – 2026-05-02
 
 This is the actual `0.0.10` PyPI release. The two stale entries below
