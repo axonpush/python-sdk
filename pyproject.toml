@@ -106,6 +106,46 @@ python_version = "3.10"
 strict = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = [
+    "agents",
+    "agents.*",
+    "anthropic",
+    "anthropic.*",
+    "crewai",
+    "crewai.*",
+    "deepagents",
+    "deepagents.*",
+    "langchain_core",
+    "langchain_core.*",
+    "loguru",
+    "loguru.*",
+    "opentelemetry",
+    "opentelemetry.*",
+    "redis",
+    "redis.*",
+    "rq",
+    "rq.*",
+    "sentry_sdk",
+    "sentry_sdk.*",
+    "structlog",
+    "structlog.*",
+]
+ignore_missing_imports = true
+
+# Integrations subclass third-party callback / hook classes whose
+# stubs we don't control. Allow ``class Foo(ThirdPartyAny): ...`` here.
+[[tool.mypy.overrides]]
+module = [
+    "axonpush.integrations.anthropic",
+    "axonpush.integrations.crewai",
+    "axonpush.integrations.deepagents",
+    "axonpush.integrations.langchain",
+    "axonpush.integrations.openai_agents",
+    "axonpush.integrations.otel",
+]
+disallow_subclassing_any = false
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

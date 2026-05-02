@@ -1,3 +1,22 @@
+"""LangChain callback handlers for AxonPush.
+
+Both a sync :class:`AxonPushCallbackHandler` (extends
+:class:`langchain_core.callbacks.BaseCallbackHandler`) and an async
+:class:`AsyncAxonPushCallbackHandler` (extends
+:class:`langchain_core.callbacks.AsyncCallbackHandler`) are exposed.
+
+The handlers propagate LangChain's ``run_id`` / ``parent_run_id`` through
+to AxonPush as ``span_id`` / ``parent_event_id`` so a chain hierarchy in
+LangChain projects cleanly into the AxonPush trace tree.
+
+Tested against ``langchain-core>=0.1,<0.4``. The 0.2 callback API
+reshape (kwargs-only ``run_id`` / ``parent_run_id`` / ``tags`` /
+``metadata``) is fully supported.
+
+Install::
+
+    pip install axonpush[langchain]
+"""
 from __future__ import annotations
 
 import logging
@@ -21,13 +40,13 @@ from axonpush.integrations._publisher import (
     DEFAULT_SHUTDOWN_TIMEOUT_S,
     RqPublisher,
 )
-from axonpush.integrations._utils import safe_serialize
-from axonpush.models.events import EventType
-
-logger = logging.getLogger("axonpush")
+from axonpush.integrations._utils import coerce_channel_id, safe_serialize
+from axonpush.models import EventType
 
 if TYPE_CHECKING:
     from axonpush.client import AsyncAxonPush, AxonPush
+
+logger = logging.getLogger("axonpush")
 
 _PublisherT = Union[BackgroundPublisher, RqPublisher, None]
 _AsyncPublisherT = Union[AsyncBackgroundPublisher, RqPublisher, None]
@@ -62,12 +81,48 @@ def _build_async_publisher(
     return None
 
 
+def _publish_kwargs(
+    *,
+    identifier: str,
+    event_type: EventType,
+    payload: Dict[str, Any],
+    channel_id: str,
+    agent_id: str,
+    trace_id: str,
+    span_id: str,
+    metadata: Dict[str, Any],
+    run_id: Optional[UUID],
+    parent_run_id: Optional[UUID],
+) -> Dict[str, Any]:
+    if run_id is not None:
+        span_id = str(run_id)
+        metadata = {**metadata, "langchain_run_id": str(run_id)}
+    out: Dict[str, Any] = {
+        "identifier": identifier,
+        "payload": payload,
+        "channel_id": channel_id,
+        "agent_id": agent_id,
+        "trace_id": trace_id,
+        "span_id": span_id,
+        "event_type": event_type,
+        "metadata": metadata,
+    }
+    if parent_run_id is not None:
+        out["parent_event_id"] = str(parent_run_id)
+        out["metadata"] = {
+            **out["metadata"],
+            "langchain_parent_run_id": str(parent_run_id),
+        }
+    return out
+
+
 class AxonPushCallbackHandler(BaseCallbackHandler):
+    """Sync LangChain callback handler that publishes to AxonPush."""
 
     def __init__(
         self,
         client: "AxonPush",
-        channel_id: int,
+        channel_id: int | str,
         *,
         agent_id: str = "langchain",
         trace_id: Optional[str] = None,
@@ -78,10 +133,13 @@ class AxonPushCallbackHandler(BaseCallbackHandler):
         rq_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._client = client
-        self._channel_id = channel_id
+        self._channel_id = coerce_channel_id(channel_id)
         self._agent_id = agent_id
         self._trace = get_or_create_trace(trace_id)
-        self._base_metadata: Dict[str, Any] = {**(metadata or {}), "framework": "langchain"}
+        self._base_metadata: Dict[str, Any] = {
+            **(metadata or {}),
+            "framework": "langchain",
+        }
         self._publisher = _build_sync_publisher(
             client, mode or "background", queue_size, shutdown_timeout, rq_options,
         )
@@ -92,7 +150,10 @@ class AxonPushCallbackHandler(BaseCallbackHandler):
     ) -> None:
         self._publish(
             "chain.start", EventType.AGENT_START,
-            {"chain_type": (serialized or {}).get("name", "unknown"), "inputs": safe_serialize(inputs)},
+            {
+                "chain_type": (serialized or {}).get("name", "unknown"),
+                "inputs": safe_serialize(inputs),
+            },
             run_id=run_id, parent_run_id=parent_run_id,
         )
 
@@ -122,7 +183,10 @@ class AxonPushCallbackHandler(BaseCallbackHandler):
     ) -> None:
         self._publish(
             "llm.start", EventType.AGENT_START,
-            {"model": (serialized or {}).get("name", "unknown"), "prompt_count": len(prompts)},
+            {
+                "model": (serialized or {}).get("name", "unknown"),
+                "prompt_count": len(prompts),
+            },
             run_id=run_id, parent_run_id=parent_run_id,
         )
 
@@ -183,30 +247,28 @@ class AxonPushCallbackHandler(BaseCallbackHandler):
         *, run_id: Optional[UUID] = None, parent_run_id: Optional[UUID] = None,
     ) -> None:
         try:
-            meta = {**self._base_metadata}
-            if run_id:
-                meta["langchain_run_id"] = str(run_id)
-            if parent_run_id:
-                meta["langchain_parent_run_id"] = str(parent_run_id)
-
-            publish_kwargs: Dict[str, Any] = {
-                "identifier": identifier,
-                "payload": payload,
-                "channel_id": self._channel_id,
-                "agent_id": self._agent_id,
-                "trace_id": self._trace.trace_id,
-                "span_id": self._trace.next_span_id(),
-                "event_type": event_type,
-                "metadata": meta,
-            }
-
+            kwargs = _publish_kwargs(
+                identifier=identifier,
+                event_type=event_type,
+                payload=payload,
+                channel_id=self._channel_id,
+                agent_id=self._agent_id,
+                trace_id=self._trace.trace_id,
+                span_id=self._trace.next_span_id(),
+                metadata=self._base_metadata,
+                run_id=run_id,
+                parent_run_id=parent_run_id,
+            )
             if self._publisher is not None:
-                self._publisher.submit(publish_kwargs)
+                self._publisher.submit(kwargs)
                 return
-
-            self._client.events.publish(**publish_kwargs)
+            self._client.events.publish(**kwargs)
         except Exception:
-            logger.warning("AxonPush: failed to emit event %r, suppressing.", identifier, exc_info=True)
+            logger.warning(
+                "AxonPush: failed to emit event %r, suppressing.",
+                identifier,
+                exc_info=True,
+            )
 
     def flush(self, timeout: Optional[float] = None) -> None:
         if self._publisher is not None:
@@ -219,11 +281,12 @@ class AxonPushCallbackHandler(BaseCallbackHandler):
 
 
 class AsyncAxonPushCallbackHandler(AsyncCallbackHandler):
+    """Async LangChain callback handler that publishes to AxonPush."""
 
     def __init__(
         self,
         client: "AsyncAxonPush",
-        channel_id: int,
+        channel_id: int | str,
         *,
         agent_id: str = "langchain",
         trace_id: Optional[str] = None,
@@ -233,10 +296,13 @@ class AsyncAxonPushCallbackHandler(AsyncCallbackHandler):
         rq_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._client = client
-        self._channel_id = channel_id
+        self._channel_id = coerce_channel_id(channel_id)
         self._agent_id = agent_id
         self._trace = get_or_create_trace(trace_id)
-        self._base_metadata: Dict[str, Any] = {**(metadata or {}), "framework": "langchain"}
+        self._base_metadata: Dict[str, Any] = {
+            **(metadata or {}),
+            "framework": "langchain",
+        }
         self._publisher = _build_async_publisher(
             client, mode or "background", max_pending, rq_options,
         )
@@ -247,7 +313,10 @@ class AsyncAxonPushCallbackHandler(AsyncCallbackHandler):
     ) -> None:
         self._publish(
             "chain.start", EventType.AGENT_START,
-            {"chain_type": (serialized or {}).get("name", "unknown"), "inputs": safe_serialize(inputs)},
+            {
+                "chain_type": (serialized or {}).get("name", "unknown"),
+                "inputs": safe_serialize(inputs),
+            },
             run_id=run_id, parent_run_id=parent_run_id,
         )
 
@@ -277,7 +346,10 @@ class AsyncAxonPushCallbackHandler(AsyncCallbackHandler):
     ) -> None:
         self._publish(
             "llm.start", EventType.AGENT_START,
-            {"model": (serialized or {}).get("name", "unknown"), "prompt_count": len(prompts)},
+            {
+                "model": (serialized or {}).get("name", "unknown"),
+                "prompt_count": len(prompts),
+            },
             run_id=run_id, parent_run_id=parent_run_id,
         )
 
@@ -338,32 +410,31 @@ class AsyncAxonPushCallbackHandler(AsyncCallbackHandler):
         *, run_id: Optional[UUID] = None, parent_run_id: Optional[UUID] = None,
     ) -> None:
         try:
-            meta = {**self._base_metadata}
-            if run_id:
-                meta["langchain_run_id"] = str(run_id)
-            if parent_run_id:
-                meta["langchain_parent_run_id"] = str(parent_run_id)
-
-            publish_kwargs: Dict[str, Any] = {
-                "identifier": identifier,
-                "payload": payload,
-                "channel_id": self._channel_id,
-                "agent_id": self._agent_id,
-                "trace_id": self._trace.trace_id,
-                "span_id": self._trace.next_span_id(),
-                "event_type": event_type,
-                "metadata": meta,
-            }
-
+            kwargs = _publish_kwargs(
+                identifier=identifier,
+                event_type=event_type,
+                payload=payload,
+                channel_id=self._channel_id,
+                agent_id=self._agent_id,
+                trace_id=self._trace.trace_id,
+                span_id=self._trace.next_span_id(),
+                metadata=self._base_metadata,
+                run_id=run_id,
+                parent_run_id=parent_run_id,
+            )
             if self._publisher is not None:
-                self._publisher.submit(publish_kwargs)
+                self._publisher.submit(kwargs)
                 return
-
             logger.warning(
-                "AxonPush: async handler in sync mode — event %r published inline.", identifier,
+                "AxonPush: async handler in sync mode — event %r dropped.",
+                identifier,
             )
         except Exception:
-            logger.warning("AxonPush: failed to emit event %r, suppressing.", identifier, exc_info=True)
+            logger.warning(
+                "AxonPush: failed to emit event %r, suppressing.",
+                identifier,
+                exc_info=True,
+            )
 
     async def aflush(self, timeout: Optional[float] = None) -> None:
         if isinstance(self._publisher, AsyncBackgroundPublisher):
@@ -373,7 +444,7 @@ class AsyncAxonPushCallbackHandler(AsyncCallbackHandler):
 
     async def aclose(self) -> None:
         if isinstance(self._publisher, AsyncBackgroundPublisher):
-            await self._publisher.close()
+            await self._publisher.aclose()
         elif self._publisher is not None:
             self._publisher.close()
         self._publisher = None
@@ -390,9 +461,10 @@ class AsyncAxonPushCallbackHandler(AsyncCallbackHandler):
 
 def get_langchain_handler(
     client: "AxonPush | AsyncAxonPush",
-    channel_id: int,
+    channel_id: int | str,
     **kwargs: Any,
 ) -> "AxonPushCallbackHandler | AsyncAxonPushCallbackHandler":
+    """Pick the right handler class based on whether ``client`` is async."""
     from axonpush.client import AsyncAxonPush
 
     if isinstance(client, AsyncAxonPush):

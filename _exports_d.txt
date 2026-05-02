@@ -1,0 +1,1 @@
+from axonpush.integrations.sentry import install_sentry

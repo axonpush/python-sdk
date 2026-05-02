@@ -1,10 +1,15 @@
 """Stdlib ``logging.Handler`` that forwards records to AxonPush.
 
-Use this for backend services that use Python's standard library ``logging``
-module — the most common case. Each LogRecord is converted into an OpenTelemetry
-shaped ``app.log`` event with ``severityNumber`` derived from the Python level.
+Each :class:`logging.LogRecord` is converted into an OpenTelemetry-shaped
+``app.log`` (or ``agent.log``) event with ``severityNumber`` derived
+from the Python level. Stdlib only — no extra deps required.
 
-Stdlib only — no extra dependencies.
+The handler installs a :class:`_SelfRecursionFilter` that drops records
+emitted by the publisher / httpx itself, plus a context-var check
+(``_in_publisher_path``) so any record that does sneak through while the
+publisher is busy is also discarded.
+
+Tested against CPython 3.10–3.13.
 
 Usage::
 
@@ -12,10 +17,10 @@ Usage::
     from axonpush import AxonPush
     from axonpush.integrations.logging_handler import AxonPushLoggingHandler
 
-    client = AxonPush(api_key="ak_...", tenant_id="1")
+    client = AxonPush(api_key="ak_...", tenant_id="org_...")
     handler = AxonPushLoggingHandler(
         client=client,
-        channel_id=1,
+        channel_id="ch_...",
         service_name="my-api",
     )
 
@@ -30,7 +35,16 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import Any, Dict, FrozenSet, Literal, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    FrozenSet,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from axonpush._tracing import current_trace, get_or_create_trace
 from axonpush.integrations._otel_payload import (
@@ -43,9 +57,15 @@ from axonpush.integrations._publisher import (
     DEFAULT_SHUTDOWN_TIMEOUT_S,
     detect_serverless,
     flush_after_invocation,
+    in_publisher_path,
 )
-from axonpush.integrations._utils import build_resource, fire_and_forget
-from axonpush.models.events import EventType
+from axonpush.integrations._utils import (
+    build_resource,
+    coerce_channel_id,
+    fire_and_forget,
+    is_async_client,
+)
+from axonpush.models import EventType
 
 if TYPE_CHECKING:
     from axonpush.client import AsyncAxonPush, AxonPush
@@ -59,8 +79,6 @@ __all__ = [
 _internal_logger = logging.getLogger("axonpush")
 
 
-# Standard LogRecord attributes we don't want to forward as user attributes
-# (they're either header info or covered by other payload fields).
 _STD_LOGRECORD_ATTRS = frozenset(
     {
         "args", "asctime", "created", "exc_info", "exc_text", "filename",
@@ -71,39 +89,19 @@ _STD_LOGRECORD_ATTRS = frozenset(
 )
 
 
-# Loggers whose records must NEVER be shipped back to AxonPush. Publishing an
-# event triggers an httpx HTTP request, which httpx itself logs at INFO level
-# via its own stdlib logger — if we forwarded that record, we'd emit another
-# event, triggering another log, and so on until the channel is flooded with
-# echoing "HTTP Request: POST /event" lines.
-#
-# - ``httpx`` / ``httpcore`` are matched as PREFIXES because those libraries
-#   create several sub-loggers (``httpx._client``, ``httpcore.connection``,
-#   ``httpcore.http11``, ...).
-# - ``axonpush`` is the SDK's own internal logger for warnings/diagnostics.
-#   We match it by EXACT equality (not prefix), so user code that happens to
-#   use the ``axonpush.*`` namespace (e.g. ``axonpush.plugins.foo`` or
-#   ``axonpush.test.*``) still gets its records shipped normally.
-#
-# These defaults are always-on and cannot be disabled. Users can add more
-# logger-name PREFIXES via the ``exclude_loggers`` kwarg on
-# ``AxonPushLoggingHandler`` — those are additive.
+# Loggers whose records must NEVER be shipped back to AxonPush. Publishing
+# triggers an httpx request, which httpx itself logs; without these defaults
+# we'd loop forever.
 _DEFAULT_EXCLUDED_EXACT: FrozenSet[str] = frozenset({"axonpush"})
-_DEFAULT_EXCLUDED_PREFIXES: Tuple[str, ...] = ("httpx", "httpcore")
+_DEFAULT_EXCLUDED_PREFIXES: Tuple[str, ...] = ("httpx", "httpcore", "axonpush.publisher")
 
-#: Public listing of always-on excluded logger names, in one place for
-#: discoverability. Union of the exact-match and prefix-match defaults.
 DEFAULT_EXCLUDED_LOGGERS: Tuple[str, ...] = (
     tuple(sorted(_DEFAULT_EXCLUDED_EXACT)) + _DEFAULT_EXCLUDED_PREFIXES
 )
 
 
 class _SelfRecursionFilter(logging.Filter):
-    """Drops records whose logger name matches an excluded name or prefix.
-
-    ``exact`` and ``prefixes`` are both checked — a record is dropped if
-    ``record.name`` is in ``exact`` OR starts with any prefix in ``prefixes``.
-    """
+    """Drops records whose logger name matches an excluded name or prefix."""
 
     def __init__(
         self, exact: FrozenSet[str], prefixes: Tuple[str, ...]
@@ -125,8 +123,8 @@ class AxonPushLoggingHandler(logging.Handler):
     def __init__(
         self,
         *,
+        channel_id: int | str,
         client: Optional["AxonPush | AsyncAxonPush"] = None,
-        channel_id: int,
         api_key: Optional[str] = None,
         tenant_id: Optional[str] = None,
         base_url: Optional[str] = None,
@@ -145,8 +143,6 @@ class AxonPushLoggingHandler(logging.Handler):
         if source not in ("agent", "app"):
             raise ValueError(f"source must be 'agent' or 'app', got {source!r}")
 
-        # Mutual exclusion: a pre-built client and credential kwargs are two
-        # separate configuration modes — mixing them is almost always a bug.
         has_credentials = any(x is not None for x in (api_key, tenant_id, base_url))
         if client is not None and has_credentials:
             raise ValueError(
@@ -154,21 +150,17 @@ class AxonPushLoggingHandler(logging.Handler):
                 "api_key=/tenant_id=, not both"
             )
 
-        # dictConfig path: no client instance available, build one from
-        # explicit kwargs or environment variables.
         if client is None:
             client = self._build_client(api_key, tenant_id, base_url)
 
         self._client = client
-        self._channel_id = channel_id
+        self._channel_id = coerce_channel_id(channel_id)
         self._source = source
         self._agent_id = agent_id
         self._environment = environment
 
         self._resource = build_resource(service_name, service_version, environment)
 
-        # Install the always-on self-recursion filter plus any user-supplied
-        # logger-name prefixes. Additive — defaults cannot be disabled.
         user_prefixes = tuple(exclude_loggers or ())
         self.addFilter(
             _SelfRecursionFilter(
@@ -183,11 +175,14 @@ class AxonPushLoggingHandler(logging.Handler):
                 f"mode must be 'background' or 'sync', got {resolved_mode!r}"
             )
         if resolved_mode == "background":
-            self._publisher: Optional[BackgroundPublisher] = BackgroundPublisher(
-                self._client,
-                queue_size=queue_size,
-                shutdown_timeout=shutdown_timeout,
-            )
+            if is_async_client(self._client):
+                self._publisher: Optional[BackgroundPublisher] = None
+            else:
+                self._publisher = BackgroundPublisher(
+                    self._client,  # type: ignore[arg-type]
+                    queue_size=queue_size,
+                    shutdown_timeout=shutdown_timeout,
+                )
         else:
             self._publisher = None
 
@@ -207,8 +202,6 @@ class AxonPushLoggingHandler(logging.Handler):
         tenant_id: Optional[str],
         base_url: Optional[str],
     ) -> "AxonPush":
-        """Construct a sync ``AxonPush`` client for dictConfig / env-var callers."""
-        # Explicit kwargs first, then fall back to environment variables.
         api_key = api_key or os.environ.get("AXONPUSH_API_KEY")
         tenant_id = tenant_id or os.environ.get("AXONPUSH_TENANT_ID")
         base_url = base_url or os.environ.get("AXONPUSH_BASE_URL")
@@ -220,7 +213,6 @@ class AxonPushLoggingHandler(logging.Handler):
                 "AXONPUSH_TENANT_ID environment variables)"
             )
 
-        # Lazy import to avoid any circular-import risk at module load time.
         from axonpush.client import AxonPush
 
         kwargs: Dict[str, Any] = {"api_key": api_key, "tenant_id": tenant_id}
@@ -229,16 +221,16 @@ class AxonPushLoggingHandler(logging.Handler):
         return AxonPush(**kwargs)
 
     def emit(self, record: logging.LogRecord) -> None:
+        if in_publisher_path():
+            return
         try:
             severity_number, severity_text = severity_from_python_level(record.levelno)
 
-            # Body: prefer the formatted message, fall back to raw msg
             try:
                 body: Any = record.getMessage()
             except Exception:  # pragma: no cover - defensive
                 body = str(record.msg)
 
-            # Pull file/function metadata into attributes
             attributes: Dict[str, Any] = {
                 "code.filepath": record.pathname,
                 "code.function": record.funcName,
@@ -250,13 +242,11 @@ class AxonPushLoggingHandler(logging.Handler):
             if record.module:
                 attributes["code.namespace"] = record.module
 
-            # Forward extra={} kwargs (anything not in the standard LogRecord attrs)
             for key, value in record.__dict__.items():
                 if key in _STD_LOGRECORD_ATTRS or key.startswith("_"):
                     continue
                 attributes[key] = value
 
-            # Format exception info if present
             if record.exc_info:
                 attributes["exception.type"] = (
                     record.exc_info[0].__name__ if record.exc_info[0] else None
@@ -274,9 +264,6 @@ class AxonPushLoggingHandler(logging.Handler):
                 resource=self._resource,
             )
 
-            # Trace correlation: use the current AxonPush trace if one exists,
-            # otherwise create one. This way logs always have SOMETHING to group
-            # by, but they don't force a new trace if the user already has one.
             trace = current_trace() or get_or_create_trace()
 
             event_type = (
@@ -309,7 +296,7 @@ class AxonPushLoggingHandler(logging.Handler):
                 print("AxonPush logging handler failed", file=sys.__stderr__)
 
     def flush(self, timeout: Optional[float] = None) -> None:
-        """Block until queued records are published, or until timeout."""
+        """Block until queued records are published, or until ``timeout``."""
         if self._publisher is not None:
             self._publisher.flush(timeout)
         super().flush()

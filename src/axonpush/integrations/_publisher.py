@@ -1,21 +1,65 @@
+"""Background publisher utilities for AxonPush integrations.
+
+Three publisher flavours are exposed:
+
+* :class:`BackgroundPublisher` — owns a sync :class:`AxonPush` client and
+  drains a bounded :class:`queue.Queue` from a daemon worker thread.
+* :class:`AsyncBackgroundPublisher` — owns an :class:`AsyncAxonPush` client
+  and drains a bounded :class:`asyncio.Queue` from a single background
+  task on the running event loop.
+* :class:`RqPublisher` — durable Redis-backed alternative for callers who
+  install ``axonpush[rq]`` and run a separate ``rq worker`` process.
+
+All three share the ``submit() / flush() / close()`` surface that the
+integration layer codes against.
+
+Re-entrancy guard
+-----------------
+Logging integrations (stdlib ``logging``, loguru, structlog) install a
+sink that calls ``publisher.submit(...)``. The publisher then calls
+``client.events.publish(...)`` which issues an ``httpx`` request — and
+``httpx`` itself emits records through the stdlib ``logging`` module.
+Without a guard, the user's logging handler captures those records and
+re-enters ``submit()``, looping until the queue overflows.
+
+We set a :class:`contextvars.ContextVar` (``_in_publisher_path``) for the
+duration of every ``submit`` / publish call. Logging integrations check
+the flag and drop records that originate inside the publisher path.
+
+Overflow
+--------
+Bounded queues drop on full. The :class:`OverflowPolicy` enum picks
+between ``DROP_OLDEST`` (default), ``DROP_NEWEST`` and ``BLOCK``. The
+drop counter is rate-limited to one warning per
+``DROP_WARNING_INTERVAL_S`` window via the stdlib ``axonpush.publisher``
+logger at WARNING level.
+"""
 from __future__ import annotations
 
 import asyncio
 import atexit
+import contextvars
+import enum
 import logging
-import logging.handlers
 import os
 import queue
 import threading
 import time
 import weakref
 from functools import wraps
-from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Optional,
+    Union,
+)
 
 if TYPE_CHECKING:
     from axonpush.client import AsyncAxonPush, AxonPush
 
-_internal_logger = logging.getLogger("axonpush")
+_internal_logger = logging.getLogger("axonpush.publisher")
 
 DEFAULT_QUEUE_SIZE = 1000
 DEFAULT_SHUTDOWN_TIMEOUT_S = 2.0
@@ -28,163 +72,203 @@ _SERVERLESS_MARKERS = (
 )
 
 
+_in_publisher_path: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_axonpush_in_publisher_path", default=False
+)
+
+
+def in_publisher_path() -> bool:
+    """Return ``True`` if the current task/thread is inside a publish call.
+
+    Logging integrations check this to short-circuit re-entry from records
+    emitted by ``httpx`` / ``httpcore`` while the publisher itself is busy
+    serialising a previous record.
+    """
+    return _in_publisher_path.get()
+
+
 def detect_serverless() -> Optional[str]:
+    """Return the human-readable name of the serverless host, or ``None``."""
     for env_var, name in _SERVERLESS_MARKERS:
         if os.environ.get(env_var):
             return name
     return None
 
 
-class _PublishHandler(logging.Handler):
-    """A ``logging.Handler`` whose ``emit`` shape matches what the stdlib
-    ``QueueListener`` expects: it pulls publish kwargs out of the
-    ``LogRecord`` (set on submit) and dispatches them via the AxonPush
-    client. Failures are swallowed and logged at WARNING — the publisher
-    pipeline is fail-open by design (a bad upstream shouldn't take down the
-    user's app).
-    """
+class OverflowPolicy(str, enum.Enum):
+    """How a bounded queue reacts when ``submit`` arrives at capacity."""
 
-    def __init__(self, client: "AxonPush | AsyncAxonPush") -> None:
-        super().__init__(level=logging.NOTSET)
-        self._client = client
+    DROP_OLDEST = "drop_oldest"
+    DROP_NEWEST = "drop_newest"
+    BLOCK = "block"
 
-    def emit(self, record: logging.LogRecord) -> None:
-        publish_kwargs = getattr(record, "_publish_kwargs", None)
-        if not publish_kwargs:
-            return
-        try:
-            self._client.events.publish(**publish_kwargs)
-        except Exception as exc:
-            _internal_logger.warning("axonpush publish failed: %s", exc)
+
+PublishKwargs = Dict[str, Any]
+
+
+class _DropTracker:
+    """Counts drops with a rate-limited warning emitter."""
+
+    def __init__(self, what: str, capacity: int) -> None:
+        self._what = what
+        self._capacity = capacity
+        self._lock = threading.Lock()
+        self._dropped = 0
+        self._last_warn = 0.0
+
+    @property
+    def total(self) -> int:
+        with self._lock:
+            return self._dropped
+
+    def record(self) -> None:
+        with self._lock:
+            self._dropped += 1
+            now = time.monotonic()
+            if now - self._last_warn < DROP_WARNING_INTERVAL_S:
+                return
+            dropped = self._dropped
+            self._last_warn = now
+        _internal_logger.warning(
+            "axonpush %s queue full; %d records dropped so far (capacity=%d) "
+            "— consider increasing queue size or switching overflow policy",
+            self._what,
+            dropped,
+            self._capacity,
+        )
 
 
 class BackgroundPublisher:
-    """Owns a worker thread that drains a bounded ``queue.Queue`` of
-    publish kwargs and dispatches them via the AxonPush client.
+    """Sync, thread-backed publisher.
 
-    Internally backed by stdlib :class:`logging.handlers.QueueListener` —
-    same threading model, same atexit-aware lifecycle, drop-on-full
-    counter and fork-reset hooks layered on top. The public surface
-    (``submit`` / ``flush`` / ``close``) is unchanged so SDK integrations
-    that depend on it don't need to care about the swap.
+    Owns an :class:`AxonPush` client and drains a bounded
+    :class:`queue.Queue` of publish kwargs from a daemon worker thread.
+    Failures inside ``client.events.publish`` are caught and logged so a
+    bad payload doesn't kill the worker.
     """
 
     def __init__(
         self,
-        client: "AxonPush | AsyncAxonPush",
+        client: "AxonPush",
         *,
         queue_size: int = DEFAULT_QUEUE_SIZE,
         shutdown_timeout: float = DEFAULT_SHUTDOWN_TIMEOUT_S,
+        overflow_policy: OverflowPolicy = OverflowPolicy.DROP_OLDEST,
     ) -> None:
         self._client = client
         self._queue_size = queue_size
         self._shutdown_timeout = shutdown_timeout
-        self._drop_lock = threading.Lock()
-        self._drop_counter = 0
-        self._last_drop_warn = 0.0
+        self._overflow_policy = overflow_policy
+        self._queue: "queue.Queue[Optional[PublishKwargs]]" = queue.Queue(maxsize=queue_size)
+        self._drops = _DropTracker("publisher", queue_size)
         self._close_lock = threading.Lock()
         self._closed = False
-        self._handler = _PublishHandler(client)
-        self._queue: "queue.Queue[Any]" = queue.Queue(maxsize=queue_size)
-        self._listener: Optional[logging.handlers.QueueListener] = None
-        self._start_listener()
+        self._thread: Optional[threading.Thread] = None
+        self._start_worker()
         _LIVE_PUBLISHERS.add(self)
 
-    def _start_listener(self) -> None:
+    def _start_worker(self) -> None:
         self._closed = False
-        # respect_handler_level=False — we route all submitted records to
-        # _PublishHandler regardless of stdlib logging levels (the SDK
-        # already filters at the integration layer before submitting).
-        self._listener = logging.handlers.QueueListener(
-            self._queue,
-            self._handler,
-            respect_handler_level=False,
+        self._thread = threading.Thread(
+            target=self._worker_loop,
+            name="axonpush-publisher",
+            daemon=True,
         )
-        self._listener.start()
+        self._thread.start()
 
-    def submit(self, publish_kwargs: Dict[str, Any]) -> None:
+    def _worker_loop(self) -> None:
+        while True:
+            item = self._queue.get()
+            try:
+                if item is None:
+                    return
+                token = _in_publisher_path.set(True)
+                try:
+                    self._client.events.publish(**item)
+                except Exception as exc:
+                    _internal_logger.warning("axonpush publish failed: %s", exc)
+                finally:
+                    _in_publisher_path.reset(token)
+            finally:
+                self._queue.task_done()
+
+    def submit(self, publish_kwargs: PublishKwargs) -> None:
+        """Enqueue a publish, dropping per ``overflow_policy`` when full."""
         if self._closed:
             return
-        # Wrap the kwargs in a synthetic LogRecord — that's what
-        # QueueListener pulls off the queue and hands to handler.handle().
-        record = logging.LogRecord(
-            name="axonpush",
-            level=logging.NOTSET,
-            pathname="",
-            lineno=0,
-            msg="",
-            args=None,
-            exc_info=None,
-        )
-        record._publish_kwargs = publish_kwargs
         try:
-            self._queue.put_nowait(record)
-        except queue.Full:
-            self._record_drop()
-
-    def _record_drop(self) -> None:
-        with self._drop_lock:
-            self._drop_counter += 1
-            now = time.monotonic()
-            if now - self._last_drop_warn < DROP_WARNING_INTERVAL_S:
+            if self._overflow_policy is OverflowPolicy.BLOCK:
+                self._queue.put(publish_kwargs)
                 return
-            dropped = self._drop_counter
-            self._last_drop_warn = now
-        _internal_logger.warning(
-            "axonpush publisher queue full; %d records dropped so far "
-            "(queue_size=%d) — consider increasing queue_size",
-            dropped,
-            self._queue_size,
-        )
+            self._queue.put_nowait(publish_kwargs)
+        except queue.Full:
+            self._drops.record()
+            if self._overflow_policy is OverflowPolicy.DROP_OLDEST:
+                try:
+                    _ = self._queue.get_nowait()
+                    self._queue.task_done()
+                except queue.Empty:
+                    return
+                try:
+                    self._queue.put_nowait(publish_kwargs)
+                except queue.Full:
+                    return
+
+    @property
+    def dropped(self) -> int:
+        """Total number of records dropped since construction."""
+        return self._drops.total
+
+    # Backwards-compat read-only attribute used by existing tests.
+    @property
+    def _drop_counter(self) -> int:
+        return self._drops.total
 
     def flush(self, timeout: Optional[float] = None) -> None:
-        # ``QueueListener`` calls ``queue.task_done()`` after each emit, so
-        # waiting on ``all_tasks_done`` semaphores us through the backlog.
+        """Block until queued kwargs are published, or ``timeout`` elapses."""
         with self._queue.all_tasks_done:
             if timeout is None:
                 while self._queue.unfinished_tasks:
                     self._queue.all_tasks_done.wait()
-            else:
-                end = time.monotonic() + timeout
-                while self._queue.unfinished_tasks:
-                    remaining = end - time.monotonic()
-                    if remaining <= 0:
-                        break
-                    self._queue.all_tasks_done.wait(remaining)
+                return
+            end = time.monotonic() + timeout
+            while self._queue.unfinished_tasks:
+                remaining = end - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._queue.all_tasks_done.wait(remaining)
 
-    def close(self) -> None:
+    def close(self, timeout: Optional[float] = None) -> None:
+        """Drain in-flight events and stop the worker. Idempotent."""
         with self._close_lock:
             if self._closed:
                 return
             self._closed = True
-        self.flush(timeout=self._shutdown_timeout)
-        listener = self._listener
-        if listener is not None:
-            try:
-                # ``QueueListener.stop()`` enqueues its sentinel and joins
-                # the worker thread. Idempotent.
-                listener.stop()
-            except Exception:
-                pass
-        self._listener = None
+        self.flush(timeout=timeout if timeout is not None else self._shutdown_timeout)
+        try:
+            self._queue.put_nowait(None)
+        except queue.Full:
+            pass
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=timeout if timeout is not None else self._shutdown_timeout)
+        self._thread = None
 
     def _reset_after_fork(self) -> None:
         self._queue = queue.Queue(maxsize=self._queue_size)
-        self._drop_lock = threading.Lock()
-        self._drop_counter = 0
-        self._last_drop_warn = 0.0
+        self._drops = _DropTracker("publisher", self._queue_size)
         self._close_lock = threading.Lock()
-        self._listener = None
-        self._start_listener()
+        self._thread = None
+        self._start_worker()
 
 
 class AsyncBackgroundPublisher:
-    """Non-blocking async publisher using ``asyncio.create_task()``.
+    """Async, task-backed publisher.
 
-    ``submit()`` is synchronous (not a coroutine) so it can be called from
-    sync callback contexts (e.g. LangChain ``BaseCallbackHandler.on_*``).
-    Tasks are tracked in a bounded pending set; when ``max_pending`` is
-    reached, new events are dropped with a rate-limited warning.
+    Owns an :class:`AsyncAxonPush` client and drains a bounded
+    :class:`asyncio.Queue` from a single background task. ``submit`` is a
+    plain method (not a coroutine) so it can be called from sync callback
+    contexts (e.g. LangChain's ``BaseCallbackHandler.on_*`` hooks).
     """
 
     def __init__(
@@ -192,74 +276,124 @@ class AsyncBackgroundPublisher:
         client: "AsyncAxonPush",
         *,
         max_pending: int = DEFAULT_QUEUE_SIZE,
+        overflow_policy: OverflowPolicy = OverflowPolicy.DROP_OLDEST,
     ) -> None:
         self._client = client
         self._max_pending = max_pending
-        self._pending: set[asyncio.Task[None]] = set()
+        self._overflow_policy = overflow_policy
+        self._drops = _DropTracker("async-publisher", max_pending)
+        self._queue: Optional["asyncio.Queue[Optional[PublishKwargs]]"] = None
+        self._worker: Optional[asyncio.Task[None]] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._closed = False
-        self._drop_lock = threading.Lock()
-        self._drop_counter = 0
-        self._last_drop_warn = 0.0
 
-    def submit(self, publish_kwargs: Dict[str, Any]) -> None:
-        if self._closed:
-            return
-        if len(self._pending) >= self._max_pending:
-            self._record_drop()
-            return
+    def _ensure_worker(self) -> Optional["asyncio.Queue[Optional[PublishKwargs]]"]:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
+            return None
+        if self._queue is None or self._loop is not loop:
+            self._loop = loop
+            self._queue = asyncio.Queue(maxsize=self._max_pending)
+            self._worker = loop.create_task(self._worker_loop(self._queue))
+        return self._queue
+
+    async def _worker_loop(
+        self, q: "asyncio.Queue[Optional[PublishKwargs]]"
+    ) -> None:
+        while True:
+            item = await q.get()
+            try:
+                if item is None:
+                    return
+                token = _in_publisher_path.set(True)
+                try:
+                    await self._client.events.publish(**item)
+                except Exception as exc:
+                    _internal_logger.warning("axonpush async publish failed: %s", exc)
+                finally:
+                    _in_publisher_path.reset(token)
+            finally:
+                q.task_done()
+
+    def submit(self, publish_kwargs: PublishKwargs) -> None:
+        """Enqueue a publish on the running event loop, drop on full."""
+        if self._closed:
             return
-        task = loop.create_task(self._fire(publish_kwargs))
-        self._pending.add(task)
-        task.add_done_callback(self._pending.discard)
-
-    async def _fire(self, publish_kwargs: Dict[str, Any]) -> None:
-        try:
-            await self._client.events.publish(**publish_kwargs)
-        except Exception as exc:
-            _internal_logger.warning("axonpush async publish failed: %s", exc)
-
-    def _record_drop(self) -> None:
-        with self._drop_lock:
-            self._drop_counter += 1
-            now = time.monotonic()
-            if now - self._last_drop_warn < DROP_WARNING_INTERVAL_S:
+        q = self._ensure_worker()
+        if q is None:
+            return
+        if q.full():
+            self._drops.record()
+            if self._overflow_policy is OverflowPolicy.DROP_NEWEST:
                 return
-            dropped = self._drop_counter
-            self._last_drop_warn = now
-        _internal_logger.warning(
-            "axonpush async publisher at capacity; %d events dropped so far "
-            "(max_pending=%d) — consider increasing max_pending",
-            dropped,
-            self._max_pending,
-        )
+            if self._overflow_policy is OverflowPolicy.DROP_OLDEST:
+                try:
+                    _ = q.get_nowait()
+                    q.task_done()
+                except asyncio.QueueEmpty:
+                    return
+            # BLOCK isn't supported in the sync-submit path on async — fall
+            # through and try put_nowait; if still full, give up.
+        try:
+            q.put_nowait(publish_kwargs)
+        except asyncio.QueueFull:
+            self._drops.record()
+
+    @property
+    def dropped(self) -> int:
+        return self._drops.total
 
     async def flush(self, timeout: Optional[float] = None) -> None:
-        if not self._pending:
+        """Wait for all queued items to be published, or until ``timeout``."""
+        q = self._queue
+        if q is None or q.empty():
             return
-        tasks = list(self._pending)
-        if timeout is None:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        else:
-            done, _ = await asyncio.wait(tasks, timeout=timeout)
+        join_task = asyncio.create_task(q.join())
+        try:
+            if timeout is None:
+                await join_task
+            else:
+                await asyncio.wait_for(asyncio.shield(join_task), timeout=timeout)
+        except asyncio.TimeoutError:
+            join_task.cancel()
+            try:
+                await join_task
+            except (asyncio.CancelledError, BaseException):  # noqa: BLE001
+                pass
 
-    async def close(self) -> None:
+    async def aclose(self, timeout: Optional[float] = None) -> None:
+        """Drain in-flight events, then stop the worker. Idempotent."""
+        if self._closed:
+            return
         self._closed = True
-        await self.flush(timeout=DEFAULT_SHUTDOWN_TIMEOUT_S)
-        self._pending.clear()
+        await self.flush(timeout=timeout)
+        if self._queue is not None:
+            try:
+                self._queue.put_nowait(None)
+            except asyncio.QueueFull:
+                pass
+        if self._worker is not None and not self._worker.done():
+            try:
+                if timeout is None:
+                    await self._worker
+                else:
+                    await asyncio.wait_for(asyncio.shield(self._worker), timeout=timeout)
+            except (asyncio.TimeoutError, asyncio.CancelledError, BaseException):  # noqa: BLE001
+                pass
+        self._worker = None
+
+    async def close(self, timeout: Optional[float] = None) -> None:
+        """Alias for :meth:`aclose`."""
+        await self.aclose(timeout=timeout)
 
 
 class RqPublisher:
     """Durable Redis-backed publisher using `python-rq <https://python-rq.org/>`_.
 
-    Each ``submit()`` call enqueues a job via ``rq.Queue.enqueue()`` (a fast
-    synchronous Redis RPUSH).  Jobs are executed by a separate ``rq worker``
-    process, so event publishing survives app restarts and is retried on
-    transient failures.
-
-    Requires ``pip install axonpush[rq]``.
+    Each ``submit()`` enqueues an RQ job; jobs are executed by a separate
+    ``rq worker`` process so event publishing survives app restarts and is
+    retried on transient failures. Requires ``pip install axonpush[rq]``.
     """
 
     def __init__(
@@ -282,9 +416,10 @@ class RqPublisher:
                 "Install it with: pip install axonpush[rq]"
             ) from None
 
-        self._api_key: str = client._auth.api_key
-        self._tenant_id: str = client._auth.tenant_id
-        self._base_url: str = client._auth.base_url
+        auth = client._auth  # type: ignore[union-attr]
+        self._api_key: str = auth.api_key
+        self._tenant_id: str = auth.tenant_id
+        self._base_url: str = auth.base_url
         self._conn = redis_conn or Redis()
         self._queue: "Queue" = Queue(name=queue_name, connection=self._conn)
         self._job_timeout = job_timeout
@@ -293,7 +428,7 @@ class RqPublisher:
         self._retry: "Retry" = Retry(max=retry)
         self._closed = False
 
-    def submit(self, publish_kwargs: Dict[str, Any]) -> None:
+    def submit(self, publish_kwargs: PublishKwargs) -> None:
         if self._closed:
             return
         try:
@@ -311,15 +446,18 @@ class RqPublisher:
         except Exception as exc:
             _internal_logger.warning("axonpush rq enqueue failed: %s", exc)
 
-    def flush(self, timeout: Optional[float] = None) -> None:
-        pass
+    def flush(self, timeout: Optional[float] = None) -> None:  # noqa: ARG002
+        return None
 
     def close(self) -> None:
         self._closed = True
 
 
 def _rq_publish_job(
-    api_key: str, tenant_id: str, base_url: str, publish_kwargs: Dict[str, Any],
+    api_key: str,
+    tenant_id: str,
+    base_url: str,
+    publish_kwargs: PublishKwargs,
 ) -> None:
     from axonpush.client import AxonPush
 
@@ -352,10 +490,24 @@ if hasattr(os, "register_at_fork"):
 atexit.register(_close_all_publishers)
 
 
+_FlushableT = Union[
+    BackgroundPublisher,
+    AsyncBackgroundPublisher,
+    RqPublisher,
+    Any,
+]
+
+
 def flush_after_invocation(
-    *handlers: Any,
+    *handlers: _FlushableT,
     timeout: Optional[float] = 5.0,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Decorator: flush each handler after the wrapped function returns.
+
+    Useful in serverless: wrap your Lambda handler so any queued events
+    are flushed before the container is frozen.
+    """
+
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -371,5 +523,7 @@ def flush_after_invocation(
                             type(h).__name__,
                             exc,
                         )
+
         return wrapper
+
     return decorator
