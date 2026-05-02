@@ -1,49 +1,33 @@
-"""MQTT transport tests — paho is fully mocked so no broker is needed."""
+"""Sync MQTT realtime client tests — paho is fully mocked."""
+
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
 from typing import Any
 from unittest.mock import MagicMock
 
-import httpx
 import pytest
 
-from axonpush import AsyncAxonPush, AxonPush, EventType
-from axonpush.models.events import Event
 from axonpush.realtime.mqtt import RealtimeClient
-from axonpush.realtime.mqtt_async import AsyncRealtimeClient
-
-from tests.conftest import API_KEY, BASE_URL, TENANT_ID
 
 
-def _credential_response() -> httpx.Response:
-    return httpx.Response(
-        200,
-        json={
-            "endpoint": "abc-ats.iot.us-east-1.amazonaws.com",
-            "presignedWssUrl": (
-                "wss://abc-ats.iot.us-east-1.amazonaws.com/mqtt?X-Amz=token"
-            ),
-            "expiresAt": (
-                datetime.now(timezone.utc) + timedelta(hours=1)
-            ).isoformat(),
-        },
-    )
+class _FakePaho:
+    """Stand-in for ``paho.mqtt.client.Client``.
 
-
-class _FakePahoClient:
-    """Minimal stand-in for paho.mqtt.client.Client.
-
-    Captures every call the SDK makes so we can assert on it. Fires
-    ``on_connect`` synchronously when ``loop_start`` is called so the
-    SDK's ``self._connected.wait()`` returns immediately.
+    Records every call. Normally fires ``on_connect`` with ``rc=0`` on
+    ``loop_start``; tests can flip ``connack_rc`` or ``never_connack`` to
+    exercise failure paths.
     """
 
+    instances: list["_FakePaho"] = []
+    connack_rc = 0
+    never_connack = False
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.client_id = kwargs.get("client_id")
         self.transport = kwargs.get("transport")
-        self.connect_args: tuple = ()
-        self.ws_options: dict = {}
+        self.connect_args: tuple[Any, ...] = ()
+        self.ws_options: dict[str, Any] = {}
         self.tls_set_called = False
         self.subscriptions: list[tuple[str, int]] = []
         self.unsubscriptions: list[str] = []
@@ -52,6 +36,7 @@ class _FakePahoClient:
         self.on_disconnect = lambda *a, **k: None
         self.on_message = lambda *a, **k: None
         self.disconnected = False
+        _FakePaho.instances.append(self)
 
     def ws_set_options(self, **kwargs: Any) -> None:
         self.ws_options = kwargs
@@ -63,8 +48,9 @@ class _FakePahoClient:
         self.connect_args = (host, port, keepalive)
 
     def loop_start(self) -> None:
-        # Fire synthetic CONNACK so SDK can proceed.
-        self.on_connect(self, None, {}, 0)
+        if _FakePaho.never_connack:
+            return
+        self.on_connect(self, None, {}, _FakePaho.connack_rc)
 
     def loop_stop(self) -> None:
         pass
@@ -84,181 +70,277 @@ class _FakePahoClient:
         self.disconnected = True
 
 
+@pytest.fixture(autouse=True)
+def reset_fake_paho() -> None:
+    _FakePaho.instances.clear()
+    _FakePaho.connack_rc = 0
+    _FakePaho.never_connack = False
+
+
 @pytest.fixture()
-def fake_paho(monkeypatch):
-    """Replace paho.mqtt.client.Client with a fake. Returns the fake instance
-    on construction."""
+def fake_paho(monkeypatch: pytest.MonkeyPatch) -> Any:
     fake_module = MagicMock()
-    fake_module.Client = _FakePahoClient
+    fake_module.Client = _FakePaho
     fake_module.MQTTv311 = 4
-    monkeypatch.setattr(
-        "axonpush.realtime.mqtt._import_paho", lambda: fake_module
-    )
+    monkeypatch.setattr("axonpush.realtime.mqtt._import_paho", lambda: fake_module)
     return fake_module
 
 
-def test_connect_fetches_credentials_and_starts_loop(mock_router, fake_paho):
-    mock_router.get("/auth/iot-credentials").mock(return_value=_credential_response())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
-        rt.connect()
-        assert isinstance(rt._client, _FakePahoClient)
-        assert rt._client.connect_args[0] == "abc-ats.iot.us-east-1.amazonaws.com"
-        assert rt._client.connect_args[1] == 443
-        assert rt._client.ws_options.get("path", "").startswith("/mqtt")
-        assert rt._client.tls_set_called
-        rt.disconnect()
+def test_connect_fetches_creds_and_starts_loop(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    assert isinstance(rt._mqtt, _FakePaho)
+    assert rt._mqtt.connect_args[0] == "abc-ats.iot.us-east-1.amazonaws.com"
+    assert rt._mqtt.connect_args[1] == 443
+    assert rt._mqtt.ws_options.get("path", "").startswith("/mqtt")
+    assert rt._mqtt.tls_set_called
+    assert rt._mqtt.client_id == "k-test-abc"
+    rt.disconnect()
 
 
-def test_subscribe_builds_topic_and_calls_paho(mock_router, fake_paho):
-    mock_router.get("/auth/iot-credentials").mock(return_value=_credential_response())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
-        rt.connect()
-        rt.subscribe(
-            "ch_5", event_type=EventType.AGENT_ERROR, agent_id="bot", environment="prod"
-        )
-        assert (
-            "axonpush/org_1/prod/app_1/ch_5/agent_error/bot",
-            1,
-        ) in rt._client.subscriptions
-        rt.disconnect()
+def test_connect_uses_topic_prefix_from_credentials(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    assert rt.credentials is not None
+    assert rt.credentials.topic_prefix == "axonpush/org_1"
+    rt.disconnect()
 
 
-def test_subscribe_without_env_uses_plus_wildcard(mock_router, fake_paho):
-    mock_router.get("/auth/iot-credentials").mock(return_value=_credential_response())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
-        rt.connect()
-        rt.subscribe("ch_5", event_type=EventType.AGENT_ERROR, agent_id="bot")
-        assert (
-            "axonpush/org_1/+/app_1/ch_5/agent_error/bot",
-            1,
-        ) in rt._client.subscriptions
-        rt.disconnect()
-
-
-def test_subscribe_without_filters_uses_wildcards(mock_router, fake_paho):
-    mock_router.get("/auth/iot-credentials").mock(return_value=_credential_response())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
-        rt.connect()
-        rt.subscribe("ch_5")
-        assert ("axonpush/org_1/+/app_1/ch_5/+/+", 1) in rt._client.subscriptions
-        rt.disconnect()
-
-
-def test_publish_serialises_event_body(mock_router, fake_paho):
-    mock_router.get("/auth/iot-credentials").mock(return_value=_credential_response())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
-        rt.connect()
-        rt.publish(
-            "ch_5",
-            "tick",
-            {"n": 1},
-            event_type=EventType.AGENT_MESSAGE,
-            agent_id="bot",
-            environment="prod",
-        )
-        topic, body, qos = rt._client.published[-1]
-        assert topic == "axonpush/org_1/prod/app_1/ch_5/agent_message/bot"
-        assert qos == 1
-        decoded = json.loads(body.decode("utf-8"))
-        assert decoded["identifier"] == "tick"
-        assert decoded["payload"] == {"n": 1}
-        assert decoded["channelId"] == "ch_5"
-        assert decoded["eventType"] == "agent.message"
-        assert decoded["agentId"] == "bot"
-        rt.disconnect()
-
-
-def test_on_event_callback_receives_parsed_event(mock_router, fake_paho):
-    mock_router.get("/auth/iot-credentials").mock(return_value=_credential_response())
-    received: list[Event] = []
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
-        rt.connect()
-        rt.on_event(received.append)
-        message = MagicMock()
-        message.payload = json.dumps(
-            {
-                "id": 1,
-                "identifier": "tick",
-                "payload": {"n": 1},
-                "eventType": "agent.message",
-            }
-        ).encode("utf-8")
-        rt._on_message(rt._client, None, message)
-        assert len(received) == 1
-        assert received[0].identifier == "tick"
-        assert received[0].event_type == EventType.AGENT_MESSAGE
-        rt.disconnect()
-
-
-def test_publish_before_connect_raises(mock_router, fake_paho):
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
-        with pytest.raises(RuntimeError, match="connect"):
-            rt.publish("ch_5", "x", {})
-
-
-def test_connect_raises_when_credentials_unavailable(mock_router, fake_paho):
-    mock_router.get("/auth/iot-credentials").mock(side_effect=httpx.ConnectError("no"))
-    with AxonPush(
-        api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=True
-    ) as c:
-        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
-        with pytest.raises(ConnectionError):
-            rt.connect()
-
-
-def test_callback_exception_is_swallowed(mock_router, fake_paho):
-    mock_router.get("/auth/iot-credentials").mock(return_value=_credential_response())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        rt = RealtimeClient(c._transport, org_id="org_1", app_id="app_1")
-        rt.connect()
-
-        def bad_cb(_evt: Event) -> None:
-            raise RuntimeError("boom")
-
-        seen: list[Event] = []
-        rt.on_event(bad_cb)
-        rt.on_event(seen.append)
-        message = MagicMock()
-        message.payload = json.dumps(
-            {"id": 1, "identifier": "x", "payload": {}, "eventType": "custom"}
-        ).encode("utf-8")
-        rt._on_message(rt._client, None, message)
-        assert len(seen) == 1
-        rt.disconnect()
-
-
-async def test_async_construction_imports_aiomqtt(monkeypatch):
-    """If aiomqtt is missing, ``AsyncRealtimeClient.__init__`` raises
-    ImportError up front. The error message must be actionable."""
-    monkeypatch.setattr(
-        "axonpush.realtime.mqtt_async._import_aiomqtt",
-        lambda: (_ for _ in ()).throw(ImportError("aiomqtt missing")),
+def test_subscribe_builds_topic_and_calls_paho(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade, environment="prod")
+    rt.connect()
+    rt.subscribe(
+        "ch_5",
+        app_id="app_1",
+        event_type="agent.error",
+        agent_id="bot",
+        callback=lambda _msg: None,
     )
-    async with AsyncAxonPush(
-        api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL
-    ) as c:
-        with pytest.raises(ImportError, match="aiomqtt"):
-            AsyncRealtimeClient(c._transport, org_id="org_1", app_id="app_1")
+    assert (
+        "axonpush/org_1/prod/app_1/ch_5/agent_error/bot",
+        1,
+    ) in rt._mqtt.subscriptions
+    rt.disconnect()
 
 
-def test_connect_without_org_uses_plus(mock_router, fake_paho):
-    """If org_id is omitted, the topic uses '+' so the broker fans out
-    everything the IAM policy allows."""
-    mock_router.get("/auth/iot-credentials").mock(return_value=_credential_response())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        rt = RealtimeClient(c._transport)
+def test_subscribe_without_env_uses_plus(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    rt.subscribe(
+        "ch_5",
+        app_id="app_1",
+        event_type="agent.error",
+        agent_id="bot",
+        callback=lambda _msg: None,
+    )
+    assert (
+        "axonpush/org_1/+/app_1/ch_5/agent_error/bot",
+        1,
+    ) in rt._mqtt.subscriptions
+    rt.disconnect()
+
+
+def test_subscribe_returns_topic_filter(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    topic = rt.subscribe("ch_5", callback=lambda _msg: None)
+    assert topic == "axonpush/org_1/+/+/ch_5/+/+"
+    rt.disconnect()
+
+
+def test_publish_serialises_payload(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade, environment="prod")
+    rt.connect()
+    rt.publish(
+        "ch_5",
+        app_id="app_1",
+        event_type="agent.message",
+        agent_id="bot",
+        payload={"identifier": "tick", "n": 1},
+    )
+    topic, body, qos = rt._mqtt.published[-1]
+    assert topic == "axonpush/org_1/prod/app_1/ch_5/agent_message/bot"
+    assert qos == 1
+    assert json.loads(body.decode("utf-8")) == {"identifier": "tick", "n": 1}
+    rt.disconnect()
+
+
+def test_publish_falls_back_to_credential_env_slug(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    rt.publish(
+        "ch_5",
+        app_id="app_1",
+        event_type="custom",
+        payload={"x": 1},
+    )
+    topic, _body, _qos = rt._mqtt.published[-1]
+    assert topic == "axonpush/org_1/default/app_1/ch_5/custom/_"
+    rt.disconnect()
+
+
+def test_publish_before_connect_raises(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    with pytest.raises(RuntimeError, match="connect"):
+        rt.publish("ch_5", app_id="app_1", event_type="custom", payload={})
+
+
+def test_subscribe_before_connect_raises(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    with pytest.raises(RuntimeError, match="connect"):
+        rt.subscribe("ch_5", callback=lambda _msg: None)
+
+
+def test_callback_receives_decoded_payload(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    received: list[dict[str, Any]] = []
+    rt.subscribe(
+        "ch_5",
+        app_id="app_1",
+        event_type="agent.message",
+        agent_id="bot",
+        callback=received.append,
+    )
+    msg = MagicMock()
+    msg.topic = "axonpush/org_1/default/app_1/ch_5/agent_message/bot"
+    msg.payload = json.dumps({"identifier": "tick", "n": 1}).encode("utf-8")
+    rt._on_message(rt._mqtt, None, msg)
+    assert received == [{"identifier": "tick", "n": 1}]
+    rt.disconnect()
+
+
+def test_failing_callback_does_not_break_others(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    seen: list[Any] = []
+
+    def bad(_msg: Any) -> None:
+        raise RuntimeError("boom")
+
+    rt.subscribe(
+        "ch_5", app_id="app_1", event_type="agent.message", callback=bad
+    )
+    rt.subscribe(
+        "ch_5",
+        app_id="app_1",
+        event_type="agent.message",
+        callback=seen.append,
+    )
+    msg = MagicMock()
+    msg.topic = "axonpush/org_1/+/app_1/ch_5/agent_message/+"
+    # Use a concrete topic so both subscribers' filters match.
+    msg.topic = "axonpush/org_1/default/app_1/ch_5/agent_message/_"
+    msg.payload = json.dumps({"x": 1}).encode("utf-8")
+    rt._on_message(rt._mqtt, None, msg)
+    assert seen == [{"x": 1}]
+    rt.disconnect()
+
+
+def test_callback_isolation_per_topic_filter(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    a: list[Any] = []
+    b: list[Any] = []
+    rt.subscribe("ch_5", app_id="app_1", event_type="agent.message", callback=a.append)
+    rt.subscribe("ch_6", app_id="app_1", event_type="agent.message", callback=b.append)
+    msg = MagicMock()
+    msg.topic = "axonpush/org_1/default/app_1/ch_5/agent_message/_"
+    msg.payload = json.dumps({"x": 1}).encode("utf-8")
+    rt._on_message(rt._mqtt, None, msg)
+    assert a == [{"x": 1}]
+    assert b == []
+    rt.disconnect()
+
+
+def test_invalid_json_message_is_dropped(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    received: list[Any] = []
+    rt.subscribe("ch_5", callback=received.append)
+    msg = MagicMock()
+    msg.topic = "axonpush/org_1/default/app_1/ch_5/custom/_"
+    msg.payload = b"not-json"
+    rt._on_message(rt._mqtt, None, msg)
+    assert received == []
+    rt.disconnect()
+
+
+def test_refresh_only_scheduled_after_successful_connack(
+    fake_facade, fake_paho
+) -> None:
+    """Refresh-task race fix: refresh timer is created **only** after the
+    broker confirms ``rc=0``. If CONNACK never arrives, ``connect()`` raises
+    and no timer is left running with stale credentials."""
+    _FakePaho.never_connack = True
+    rt = RealtimeClient(fake_facade, keepalive=1)
+    with pytest.raises(ConnectionError, match="CONNACK"):
         rt.connect()
-        rt.subscribe("ch_5")
-        topics = [t for t, _ in rt._client.subscriptions]
-        # tenant_id passed at client level becomes the org_id by default in
-        # client.connect_realtime, but here we instantiate RealtimeClient
-        # directly with no org_id, so it falls back to the '+' wildcard.
-        assert any("axonpush/+/+/+/ch_5/+/+" == t for t in topics)
-        rt.disconnect()
+    assert rt._refresh_timer is None
+
+
+def test_refresh_not_scheduled_on_connack_failure(
+    fake_facade, fake_paho
+) -> None:
+    """``rc != 0`` means broker rejected the connection. The SDK must
+    not schedule a refresh against credentials the broker refused."""
+    _FakePaho.connack_rc = 5  # Not authorized
+    rt = RealtimeClient(fake_facade, keepalive=1)
+    with pytest.raises(ConnectionError):
+        rt.connect()
+    assert rt._refresh_timer is None
+
+
+def test_disconnect_cancels_refresh_timer(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    assert rt._refresh_timer is not None
+    timer = rt._refresh_timer
+    rt.disconnect()
+    assert rt._refresh_timer is None
+    assert not timer.is_alive() or timer.finished.is_set()
+
+
+def test_subscribe_only_calls_paho_when_connected(
+    fake_facade, fake_paho
+) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    # Force-clear the connected flag so the call short-circuits.
+    rt._connected.clear()
+    rt.subscribe("ch_5", callback=lambda _m: None)
+    # The subscription was recorded but not pushed to paho since not connected.
+    assert "axonpush/org_1/+/+/ch_5/+/+" in rt._subscriptions
+    assert ("axonpush/org_1/+/+/ch_5/+/+", 1) not in rt._mqtt.subscriptions
+    rt.disconnect()
+
+
+def test_unsubscribe_removes_handler(fake_facade, fake_paho) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+    topic = rt.subscribe("ch_5", callback=lambda _m: None)
+    rt.unsubscribe(topic)
+    assert topic not in rt._subscriptions
+    assert topic in rt._mqtt.unsubscriptions
+    rt.disconnect()
+
+
+def test_async_callback_on_sync_client_logs_warning(
+    fake_facade, fake_paho, caplog: pytest.LogCaptureFixture
+) -> None:
+    rt = RealtimeClient(fake_facade)
+    rt.connect()
+
+    async def coro_cb(_msg: Any) -> None:
+        return None
+
+    rt.subscribe("ch_5", callback=coro_cb)
+    msg = MagicMock()
+    msg.topic = "axonpush/org_1/+/+/ch_5/+/+"
+    # Concrete topic so the wildcard filter matches.
+    msg.topic = "axonpush/org_1/default/app_1/ch_5/custom/_"
+    msg.payload = json.dumps({"x": 1}).encode("utf-8")
+    with caplog.at_level("WARNING", logger="axonpush.realtime"):
+        rt._on_message(rt._mqtt, None, msg)
+    assert any("async callback" in rec.message for rec in caplog.records)
+    rt.disconnect()

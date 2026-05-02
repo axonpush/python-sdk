@@ -1,64 +1,117 @@
+"""MQTT topic builders.
+
+Wire format pinned by the backend at
+``easy-push/src/pubsub/topic-builder.ts``::
+
+    {topic_prefix}/{env_slug}/{app_id}/{channel_id}/{event_type}/{agent_id}
+
+``topic_prefix`` is org-scoped (``axonpush/{org_id}``) and is returned by
+the ``/auth/iot-credentials`` endpoint as ``topicPrefix`` — callers should
+forward it verbatim. Each segment is sanitised with
+``[^a-zA-Z0-9_-] -> _`` to satisfy AWS IoT topic-name rules. On publish,
+a missing ``env_slug`` falls back to the default env slug returned with
+the credentials response (typically ``"default"``); other missing
+segments fall back to ``_``. On subscribe, every missing slot becomes the
+MQTT ``+`` wildcard.
+"""
+
 from __future__ import annotations
 
 import re
-from typing import Optional, Union
-
-from axonpush.models.events import EventType
 
 _SAFE_RE = re.compile(r"[^a-zA-Z0-9_-]")
-_DEFAULT_ENV_SLUG = "default"
+_FALLBACK_ENV_SLUG = "default"
 
 
-def _safe_segment(value: Optional[Union[str, int, EventType]]) -> str:
+def _sanitize(value: str) -> str:
+    cleaned = _SAFE_RE.sub("_", value)
+    return cleaned or "_"
+
+
+def _publish_segment(value: str | None) -> str:
     if value is None or value == "":
         return "_"
-    if isinstance(value, EventType):
-        value = value.value
-    if value == "+" or value == "#":
-        return str(value)
-    sanitized = _SAFE_RE.sub("_", str(value))
-    return sanitized or "_"
+    return _sanitize(value)
 
 
-def _slot(value: Optional[Union[str, int, EventType]]) -> str:
+def _subscribe_segment(value: str | None) -> str:
     if value is None or value == "":
         return "+"
-    return _safe_segment(value)
-
-
-def _env_publish_segment(env: Optional[str]) -> str:
-    if env is None or env == "":
-        return _DEFAULT_ENV_SLUG
-    return _safe_segment(env)
-
-
-def build_subscribe_topic(
-    org_id: str,
-    app_id: Optional[str] = None,
-    channel_id: Optional[Union[int, str]] = None,
-    event_type: Optional[Union[str, EventType]] = None,
-    agent_id: Optional[str] = None,
-    *,
-    environment: Optional[str] = None,
-) -> str:
-    return (
-        f"axonpush/{_safe_segment(org_id)}/{_slot(environment)}/"
-        f"{_slot(app_id)}/{_slot(channel_id)}/"
-        f"{_slot(event_type)}/{_slot(agent_id)}"
-    )
+    return _sanitize(value)
 
 
 def build_publish_topic(
-    org_id: str,
-    app_id: str,
-    channel_id: Union[int, str],
-    event_type: Union[str, EventType],
-    agent_id: Optional[str] = None,
+    topic_prefix: str,
     *,
-    environment: Optional[str] = None,
+    app_id: str,
+    channel_id: str,
+    event_type: str,
+    agent_id: str | None = None,
+    env_slug: str | None = None,
+    default_env_slug: str = _FALLBACK_ENV_SLUG,
 ) -> str:
-    return (
-        f"axonpush/{_safe_segment(org_id)}/{_env_publish_segment(environment)}/"
-        f"{_safe_segment(app_id)}/{_safe_segment(channel_id)}/"
-        f"{_safe_segment(event_type)}/{_safe_segment(agent_id)}"
+    """Build the MQTT topic the backend publishes events to.
+
+    Args:
+        topic_prefix: Org-scoped prefix from the credentials response
+            (``IotCredentials.topic_prefix``). Used verbatim — already
+            sanitised by the backend.
+        app_id: App ID (UUID string).
+        channel_id: Channel ID (UUID string).
+        event_type: Event type (e.g. ``"agent.start"`` or ``"custom"``).
+        agent_id: Optional agent ID.
+        env_slug: Environment slug. If ``None`` or empty, falls back to
+            ``default_env_slug``.
+        default_env_slug: Slug used when ``env_slug`` is missing —
+            defaults to ``"default"`` to match the backend.
+
+    Returns:
+        The fully-qualified MQTT topic string.
+    """
+    env = env_slug if env_slug else default_env_slug
+    return "/".join(
+        (
+            topic_prefix,
+            _sanitize(env),
+            _sanitize(app_id),
+            _sanitize(channel_id),
+            _sanitize(event_type),
+            _publish_segment(agent_id),
+        )
+    )
+
+
+def build_subscribe_topic(
+    topic_prefix: str,
+    *,
+    app_id: str | None = None,
+    channel_id: str | None = None,
+    event_type: str | None = None,
+    agent_id: str | None = None,
+    env_slug: str | None = None,
+) -> str:
+    """Build an MQTT topic filter for ``subscribe``.
+
+    Missing segments collapse to the MQTT ``+`` single-level wildcard.
+
+    Args:
+        topic_prefix: Org-scoped prefix from the credentials response.
+        app_id: App ID, or ``None`` for any.
+        channel_id: Channel ID, or ``None`` for any.
+        event_type: Event type, or ``None`` for any.
+        agent_id: Agent ID, or ``None`` for any.
+        env_slug: Environment slug, or ``None`` for any.
+
+    Returns:
+        The MQTT topic-filter string.
+    """
+    return "/".join(
+        (
+            topic_prefix,
+            _subscribe_segment(env_slug),
+            _subscribe_segment(app_id),
+            _subscribe_segment(channel_id),
+            _subscribe_segment(event_type),
+            _subscribe_segment(agent_id),
+        )
     )
