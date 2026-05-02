@@ -1,0 +1,9 @@
+project_name_override: "axonpush_internal_api"
+package_name_override: "_internal_api"
+use_path_prefixes_for_title_model_names: true
+field_constraints: true
+content_type_overrides:
+  application/json: "application/json"
+post_hooks:
+  - "ruff check --fix --exit-zero --select I"
+  - "ruff format"

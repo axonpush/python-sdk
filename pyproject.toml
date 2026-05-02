@@ -1,6 +1,6 @@
 [project]
 name = "axonpush"
-version = "0.0.11"
+version = "0.0.10"
 description = "Python SDK for AxonPush — real-time event infrastructure for AI agent systems"
 readme = "README.md"
 license = "MIT"
@@ -111,4 +111,9 @@ testpaths = ["tests"]
 addopts = "-m 'not e2e'"
 markers = [
     "e2e: end-to-end tests requiring a live easy-push backend (opt in with `pytest -m e2e`)",
+]
+
+[dependency-groups]
+dev = [
+    "openapi-python-client>=0.21,<1.0",
 ]
