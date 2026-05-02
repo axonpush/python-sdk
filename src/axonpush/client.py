@@ -190,42 +190,42 @@ class AxonPush:
     @property
     def events(self) -> Any:
         """Events resource accessor (lazy import)."""
-        return self._resource("events", "EventsResource")
+        return self._resource("events", "Events")
 
     @property
     def channels(self) -> Any:
         """Channels resource accessor (lazy import)."""
-        return self._resource("channels", "ChannelsResource")
+        return self._resource("channels", "Channels")
 
     @property
     def apps(self) -> Any:
         """Apps resource accessor (lazy import)."""
-        return self._resource("apps", "AppsResource")
+        return self._resource("apps", "Apps")
 
     @property
     def environments(self) -> Any:
         """Environments resource accessor (lazy import)."""
-        return self._resource("environments", "EnvironmentsResource")
+        return self._resource("environments", "Environments")
 
     @property
     def webhooks(self) -> Any:
         """Webhooks resource accessor (lazy import)."""
-        return self._resource("webhooks", "WebhooksResource")
+        return self._resource("webhooks", "Webhooks")
 
     @property
     def traces(self) -> Any:
         """Traces resource accessor (lazy import)."""
-        return self._resource("traces", "TracesResource")
+        return self._resource("traces", "Traces")
 
     @property
     def api_keys(self) -> Any:
         """API keys resource accessor (lazy import)."""
-        return self._resource("api_keys", "ApiKeysResource")
+        return self._resource("api_keys", "ApiKeys")
 
     @property
     def organizations(self) -> Any:
         """Organizations resource accessor (lazy import)."""
-        return self._resource("organizations", "OrganizationsResource")
+        return self._resource("organizations", "Organizations")
 
     def connect_realtime(self, **kwargs: Any) -> Any:
         """Open a realtime (MQTT) connection.
@@ -345,42 +345,42 @@ class AsyncAxonPush:
     @property
     def events(self) -> Any:
         """Events resource accessor (lazy import)."""
-        return self._resource("events", "AsyncEventsResource")
+        return self._resource("events", "AsyncEvents")
 
     @property
     def channels(self) -> Any:
         """Channels resource accessor (lazy import)."""
-        return self._resource("channels", "AsyncChannelsResource")
+        return self._resource("channels", "AsyncChannels")
 
     @property
     def apps(self) -> Any:
         """Apps resource accessor (lazy import)."""
-        return self._resource("apps", "AsyncAppsResource")
+        return self._resource("apps", "AsyncApps")
 
     @property
     def environments(self) -> Any:
         """Environments resource accessor (lazy import)."""
-        return self._resource("environments", "AsyncEnvironmentsResource")
+        return self._resource("environments", "AsyncEnvironments")
 
     @property
     def webhooks(self) -> Any:
         """Webhooks resource accessor (lazy import)."""
-        return self._resource("webhooks", "AsyncWebhooksResource")
+        return self._resource("webhooks", "AsyncWebhooks")
 
     @property
     def traces(self) -> Any:
         """Traces resource accessor (lazy import)."""
-        return self._resource("traces", "AsyncTracesResource")
+        return self._resource("traces", "AsyncTraces")
 
     @property
     def api_keys(self) -> Any:
         """API keys resource accessor (lazy import)."""
-        return self._resource("api_keys", "AsyncApiKeysResource")
+        return self._resource("api_keys", "AsyncApiKeys")
 
     @property
     def organizations(self) -> Any:
         """Organizations resource accessor (lazy import)."""
-        return self._resource("organizations", "AsyncOrganizationsResource")
+        return self._resource("organizations", "AsyncOrganizations")
 
     async def connect_realtime(self, **kwargs: Any) -> Any:
         """Open an asynchronous realtime (MQTT) connection.
