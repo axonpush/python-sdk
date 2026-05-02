@@ -61,7 +61,7 @@ class ApiKeys:
 
     def list(self) -> List[ApiKey] | None:
         """List API keys for the calling org."""
-        return self._client._invoke(_list_op.sync)
+        return self._client._invoke(_list_op)
 
     def create(
         self,
@@ -94,11 +94,11 @@ class ApiKeys:
             environment_id=environment_id,
             allow_environment_override=allow_environment_override,
         )
-        return self._client._invoke(_create_op.sync, body=body)
+        return self._client._invoke(_create_op, body=body)
 
     def delete(self, key_id: str) -> MessageResponseDto | None:
         """Revoke an API key by UUID."""
-        return self._client._invoke(_revoke_op.sync, id=key_id)
+        return self._client._invoke(_revoke_op, id=key_id)
 
 
 class AsyncApiKeys:
@@ -109,7 +109,7 @@ class AsyncApiKeys:
 
     async def list(self) -> List[ApiKey] | None:
         """See :meth:`ApiKeys.list`."""
-        return await self._client._invoke(_list_op.asyncio)
+        return await self._client._invoke(_list_op)
 
     async def create(
         self,
@@ -130,8 +130,8 @@ class AsyncApiKeys:
             environment_id=environment_id,
             allow_environment_override=allow_environment_override,
         )
-        return await self._client._invoke(_create_op.asyncio, body=body)
+        return await self._client._invoke(_create_op, body=body)
 
     async def delete(self, key_id: str) -> MessageResponseDto | None:
         """See :meth:`ApiKeys.delete`."""
-        return await self._client._invoke(_revoke_op.asyncio, id=key_id)
+        return await self._client._invoke(_revoke_op, id=key_id)

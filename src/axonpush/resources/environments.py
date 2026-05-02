@@ -68,7 +68,7 @@ class Environments:
 
     def list(self) -> List[Environment] | None:
         """List environments for the caller's organization."""
-        return self._client._invoke(_list_op.sync)
+        return self._client._invoke(_list_op)
 
     def create(
         self,
@@ -98,7 +98,7 @@ class Environments:
             is_default=is_default,
             clone_from_env_id=clone_from_env_id,
         )
-        return self._client._invoke(_create_op.sync, body=body)
+        return self._client._invoke(_create_op, body=body)
 
     def update(
         self,
@@ -114,11 +114,11 @@ class Environments:
             color=color,
             require_confirmation_for_destructive=require_confirmation_for_destructive,
         )
-        return self._client._invoke(_update_op.sync, id=env_id, body=body)
+        return self._client._invoke(_update_op, id=env_id, body=body)
 
     def delete(self, env_id: str) -> OkResponseDto | None:
         """Soft-delete an environment."""
-        return self._client._invoke(_remove_op.sync, id=env_id)
+        return self._client._invoke(_remove_op, id=env_id)
 
     def promote_to_default(
         self, env_id: str
@@ -127,7 +127,7 @@ class Environments:
         # Generated op has a union return type that confuses TypeVar inference.
         return cast(
             "EnvironmentControllerPromoteResponse201 | Environment | None",
-            self._client._invoke(_promote_op.sync, id=env_id),
+            self._client._invoke(_promote_op, id=env_id),
         )
 
 
@@ -139,7 +139,7 @@ class AsyncEnvironments:
 
     async def list(self) -> List[Environment] | None:
         """See :meth:`Environments.list`."""
-        return await self._client._invoke(_list_op.asyncio)
+        return await self._client._invoke(_list_op)
 
     async def create(
         self,
@@ -160,7 +160,7 @@ class AsyncEnvironments:
             is_default=is_default,
             clone_from_env_id=clone_from_env_id,
         )
-        return await self._client._invoke(_create_op.asyncio, body=body)
+        return await self._client._invoke(_create_op, body=body)
 
     async def update(
         self,
@@ -176,11 +176,11 @@ class AsyncEnvironments:
             color=color,
             require_confirmation_for_destructive=require_confirmation_for_destructive,
         )
-        return await self._client._invoke(_update_op.asyncio, id=env_id, body=body)
+        return await self._client._invoke(_update_op, id=env_id, body=body)
 
     async def delete(self, env_id: str) -> OkResponseDto | None:
         """See :meth:`Environments.delete`."""
-        return await self._client._invoke(_remove_op.asyncio, id=env_id)
+        return await self._client._invoke(_remove_op, id=env_id)
 
     async def promote_to_default(
         self, env_id: str
@@ -188,5 +188,5 @@ class AsyncEnvironments:
         """See :meth:`Environments.promote_to_default`."""
         return cast(
             "EnvironmentControllerPromoteResponse201 | Environment | None",
-            await self._client._invoke(_promote_op.asyncio, id=env_id),
+            await self._client._invoke(_promote_op, id=env_id),
         )

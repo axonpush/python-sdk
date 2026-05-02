@@ -58,18 +58,18 @@ class Organizations:
 
     def list(self) -> List[Organization] | None:
         """List organizations the caller is a member of."""
-        return self._client._invoke(_list_op.sync)
+        return self._client._invoke(_list_op)
 
     def get(self, org_id: str) -> Organization | None:
         """Fetch a single organization by UUID."""
-        return self._client._invoke(_get_op.sync, id=org_id)
+        return self._client._invoke(_get_op, id=org_id)
 
     def create(
         self, name: str, *, slug: str, description: str | None = None
     ) -> OrganizationCreateResponseDto | None:
         """Create a new organization (returns initial access tokens)."""
         return self._client._invoke(
-            _create_op.sync,
+            _create_op,
             body=_build_create_dto(name=name, slug=slug, description=description),
         )
 
@@ -83,14 +83,14 @@ class Organizations:
     ) -> OkResponseDto | None:
         """Edit organization name / slug / description."""
         return self._client._invoke(
-            _edit_op.sync,
+            _edit_op,
             id=org_id,
             body=_build_create_dto(name=name, slug=slug, description=description),
         )
 
     def delete(self, org_id: str) -> OkResponseDto | None:
         """Soft-delete an organization."""
-        return self._client._invoke(_delete_op.sync, id=org_id)
+        return self._client._invoke(_delete_op, id=org_id)
 
     def invite(
         self,
@@ -101,21 +101,21 @@ class Organizations:
     ) -> InvitationResponseDto | None:
         """Invite a user to an organization."""
         return self._client._invoke(
-            _invite_op.sync, id=org_id, body=_build_invite_dto(email=email, role=role)
+            _invite_op, id=org_id, body=_build_invite_dto(email=email, role=role)
         )
 
     def cancel_invitation(self, org_id: str, invitation_id: str) -> SuccessResponseDto | None:
         """Cancel a pending invitation."""
-        return self._client._invoke(_delete_invite_op.sync, id=org_id, invitation_id=invitation_id)
+        return self._client._invoke(_delete_invite_op, id=org_id, invitation_id=invitation_id)
 
     def remove_member(self, org_id: str, user_id: str) -> SuccessResponseDto | None:
         """Remove a member from an organization."""
-        return self._client._invoke(_remove_member_op.sync, id=org_id, user_id=user_id)
+        return self._client._invoke(_remove_member_op, id=org_id, user_id=user_id)
 
     def transfer_ownership(self, org_id: str, target_user_id: str) -> SuccessResponseDto | None:
         """Transfer organization ownership to another member."""
         return self._client._invoke(
-            _transfer_op.sync,
+            _transfer_op,
             id=org_id,
             body=TransferOwnershipDto(user_id=target_user_id),
         )
@@ -129,18 +129,18 @@ class AsyncOrganizations:
 
     async def list(self) -> List[Organization] | None:
         """See :meth:`Organizations.list`."""
-        return await self._client._invoke(_list_op.asyncio)
+        return await self._client._invoke(_list_op)
 
     async def get(self, org_id: str) -> Organization | None:
         """See :meth:`Organizations.get`."""
-        return await self._client._invoke(_get_op.asyncio, id=org_id)
+        return await self._client._invoke(_get_op, id=org_id)
 
     async def create(
         self, name: str, *, slug: str, description: str | None = None
     ) -> OrganizationCreateResponseDto | None:
         """See :meth:`Organizations.create`."""
         return await self._client._invoke(
-            _create_op.asyncio,
+            _create_op,
             body=_build_create_dto(name=name, slug=slug, description=description),
         )
 
@@ -154,14 +154,14 @@ class AsyncOrganizations:
     ) -> OkResponseDto | None:
         """See :meth:`Organizations.update`."""
         return await self._client._invoke(
-            _edit_op.asyncio,
+            _edit_op,
             id=org_id,
             body=_build_create_dto(name=name, slug=slug, description=description),
         )
 
     async def delete(self, org_id: str) -> OkResponseDto | None:
         """See :meth:`Organizations.delete`."""
-        return await self._client._invoke(_delete_op.asyncio, id=org_id)
+        return await self._client._invoke(_delete_op, id=org_id)
 
     async def invite(
         self,
@@ -172,7 +172,7 @@ class AsyncOrganizations:
     ) -> InvitationResponseDto | None:
         """See :meth:`Organizations.invite`."""
         return await self._client._invoke(
-            _invite_op.asyncio,
+            _invite_op,
             id=org_id,
             body=_build_invite_dto(email=email, role=role),
         )
@@ -180,19 +180,19 @@ class AsyncOrganizations:
     async def cancel_invitation(self, org_id: str, invitation_id: str) -> SuccessResponseDto | None:
         """See :meth:`Organizations.cancel_invitation`."""
         return await self._client._invoke(
-            _delete_invite_op.asyncio, id=org_id, invitation_id=invitation_id
+            _delete_invite_op, id=org_id, invitation_id=invitation_id
         )
 
     async def remove_member(self, org_id: str, user_id: str) -> SuccessResponseDto | None:
         """See :meth:`Organizations.remove_member`."""
-        return await self._client._invoke(_remove_member_op.asyncio, id=org_id, user_id=user_id)
+        return await self._client._invoke(_remove_member_op, id=org_id, user_id=user_id)
 
     async def transfer_ownership(
         self, org_id: str, target_user_id: str
     ) -> SuccessResponseDto | None:
         """See :meth:`Organizations.transfer_ownership`."""
         return await self._client._invoke(
-            _transfer_op.asyncio,
+            _transfer_op,
             id=org_id,
             body=TransferOwnershipDto(user_id=target_user_id),
         )

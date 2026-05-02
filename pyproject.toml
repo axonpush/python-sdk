@@ -146,6 +146,14 @@ module = [
 ]
 disallow_subclassing_any = false
 
+# Resource modules dispatch through the facade's ``_invoke`` chokepoint,
+# which is typed ``Any`` in the Protocol (op arg is a duck-typed module).
+# Each method signature declares the precise return; allow the bare-Any
+# return inside the function body so we don't have to ``cast`` 60+ sites.
+[[tool.mypy.overrides]]
+module = ["axonpush.resources.*"]
+disable_error_code = ["no-any-return"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

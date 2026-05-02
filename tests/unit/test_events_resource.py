@@ -72,7 +72,7 @@ class TestPublishBody:
 
         assert isinstance(result, EventIngestResponseDto)
         op, kwargs = fake.calls[0]
-        assert op is _create_op.sync
+        assert op is _create_op
         body = kwargs["body"]
         assert isinstance(body, CreateEventDto)
         assert body.identifier == "greet"
@@ -150,7 +150,7 @@ class TestList:
         events.list(CHANNEL_ID)
 
         op, kwargs = fake.calls[0]
-        assert op is _list_op.sync
+        assert op is _list_op
         assert kwargs == {"channel_id": CHANNEL_ID}
 
     def test_search_calls_search_op_with_no_args(self) -> None:
@@ -159,7 +159,7 @@ class TestList:
         events.search()
 
         op, kwargs = fake.calls[0]
-        assert op is _search_op.sync
+        assert op is _search_op
         assert kwargs == {}
 
 
@@ -172,7 +172,7 @@ class TestAsyncEvents:
 
         assert isinstance(result, EventIngestResponseDto)
         op, kwargs = fake.calls[0]
-        assert op is _create_op.asyncio
+        assert op is _create_op
         body = kwargs["body"]
         assert isinstance(body, CreateEventDto)
         assert body.identifier == "greet"
@@ -184,5 +184,5 @@ class TestAsyncEvents:
         await events.list(CHANNEL_ID)
 
         op, kwargs = fake.calls[0]
-        assert op is _list_op.asyncio
+        assert op is _list_op
         assert kwargs == {"channel_id": CHANNEL_ID}

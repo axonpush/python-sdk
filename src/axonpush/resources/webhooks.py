@@ -76,19 +76,19 @@ class Webhooks:
             event_types=event_types,
             description=description,
         )
-        return self._client._invoke(_create_op.sync, body=body)
+        return self._client._invoke(_create_op, body=body)
 
     def list_endpoints(self, channel_id: str) -> list[WebhookEndpoint] | None:
         """List endpoints attached to a channel."""
-        return self._client._invoke(_list_op.sync, channel_id=channel_id)
+        return self._client._invoke(_list_op, channel_id=channel_id)
 
     def delete_endpoint(self, endpoint_id: str) -> MessageResponseDto | None:
         """Delete a webhook endpoint."""
-        return self._client._invoke(_delete_op.sync, id=endpoint_id)
+        return self._client._invoke(_delete_op, id=endpoint_id)
 
     def deliveries(self, endpoint_id: str) -> list[WebhookDelivery] | None:
         """List deliveries for a webhook endpoint."""
-        return self._client._invoke(_deliveries_op.sync, endpoint_id=endpoint_id)
+        return self._client._invoke(_deliveries_op, endpoint_id=endpoint_id)
 
 
 class AsyncWebhooks:
@@ -114,16 +114,16 @@ class AsyncWebhooks:
             event_types=event_types,
             description=description,
         )
-        return await self._client._invoke(_create_op.asyncio, body=body)
+        return await self._client._invoke(_create_op, body=body)
 
     async def list_endpoints(self, channel_id: str) -> list[WebhookEndpoint] | None:
         """See :meth:`Webhooks.list_endpoints`."""
-        return await self._client._invoke(_list_op.asyncio, channel_id=channel_id)
+        return await self._client._invoke(_list_op, channel_id=channel_id)
 
     async def delete_endpoint(self, endpoint_id: str) -> MessageResponseDto | None:
         """See :meth:`Webhooks.delete_endpoint`."""
-        return await self._client._invoke(_delete_op.asyncio, id=endpoint_id)
+        return await self._client._invoke(_delete_op, id=endpoint_id)
 
     async def deliveries(self, endpoint_id: str) -> list[WebhookDelivery] | None:
         """See :meth:`Webhooks.deliveries`."""
-        return await self._client._invoke(_deliveries_op.asyncio, endpoint_id=endpoint_id)
+        return await self._client._invoke(_deliveries_op, endpoint_id=endpoint_id)

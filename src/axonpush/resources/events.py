@@ -132,7 +132,7 @@ class Events:
             metadata=metadata,
             environment=environment,
         )
-        return self._client._invoke(_create_op.sync, body=body)
+        return self._client._invoke(_create_op, body=body)
 
     def list(
         self,
@@ -180,7 +180,7 @@ class Events:
                 "payload_filter": payload_filter,
             }
         )
-        return self._client._invoke(_list_op.sync, **kwargs)
+        return self._client._invoke(_list_op, **kwargs)
 
     def search(
         self,
@@ -235,7 +235,7 @@ class Events:
                 "source": source,
             }
         )
-        return self._client._invoke(_search_op.sync, **kwargs)
+        return self._client._invoke(_search_op, **kwargs)
 
 
 class AsyncEvents:
@@ -271,7 +271,7 @@ class AsyncEvents:
             metadata=metadata,
             environment=environment,
         )
-        return await self._client._invoke(_create_op.asyncio, body=body)
+        return await self._client._invoke(_create_op, body=body)
 
     async def list(
         self,
@@ -302,7 +302,7 @@ class AsyncEvents:
                 "payload_filter": payload_filter,
             }
         )
-        return await self._client._invoke(_list_op.asyncio, **kwargs)
+        return await self._client._invoke(_list_op, **kwargs)
 
     async def search(
         self,
@@ -337,4 +337,4 @@ class AsyncEvents:
                 "source": source,
             }
         )
-        return await self._client._invoke(_search_op.asyncio, **kwargs)
+        return await self._client._invoke(_search_op, **kwargs)

@@ -49,7 +49,7 @@ class Traces:
             environment: Restrict to an environment slug.
         """
         return self._client._invoke(
-            _list_op.sync,
+            _list_op,
             page=_opt(page),
             limit=_opt(limit),
             app_id=_opt(app_id),
@@ -64,7 +64,7 @@ class Traces:
     ) -> TraceStats | None:
         """Dashboard stats — totals, error rate, events-by-hour buckets."""
         return self._client._invoke(
-            _stats_op.sync, app_id=_opt(app_id), environment=_opt(environment)
+            _stats_op, app_id=_opt(app_id), environment=_opt(environment)
         )
 
     def events(
@@ -76,7 +76,7 @@ class Traces:
     ) -> List[EventDetails] | None:
         """List the events that make up a trace, in order."""
         return self._client._invoke(
-            _events_op.sync,
+            _events_op,
             trace_id=trace_id,
             app_id=_opt(app_id),
             environment=_opt(environment),
@@ -91,7 +91,7 @@ class Traces:
     ) -> TraceSummary | None:
         """Get a single-trace summary (counts + duration)."""
         return self._client._invoke(
-            _summary_op.sync,
+            _summary_op,
             trace_id=trace_id,
             app_id=_opt(app_id),
             environment=_opt(environment),
@@ -114,7 +114,7 @@ class AsyncTraces:
     ) -> TraceControllerListTracesResponse200 | None:
         """See :meth:`Traces.list`."""
         return await self._client._invoke(
-            _list_op.asyncio,
+            _list_op,
             page=_opt(page),
             limit=_opt(limit),
             app_id=_opt(app_id),
@@ -129,7 +129,7 @@ class AsyncTraces:
     ) -> TraceStats | None:
         """See :meth:`Traces.stats`."""
         return await self._client._invoke(
-            _stats_op.asyncio, app_id=_opt(app_id), environment=_opt(environment)
+            _stats_op, app_id=_opt(app_id), environment=_opt(environment)
         )
 
     async def events(
@@ -141,7 +141,7 @@ class AsyncTraces:
     ) -> List[EventDetails] | None:
         """See :meth:`Traces.events`."""
         return await self._client._invoke(
-            _events_op.asyncio,
+            _events_op,
             trace_id=trace_id,
             app_id=_opt(app_id),
             environment=_opt(environment),
@@ -156,7 +156,7 @@ class AsyncTraces:
     ) -> TraceSummary | None:
         """See :meth:`Traces.summary`."""
         return await self._client._invoke(
-            _summary_op.asyncio,
+            _summary_op,
             trace_id=trace_id,
             app_id=_opt(app_id),
             environment=_opt(environment),

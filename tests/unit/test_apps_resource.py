@@ -44,21 +44,21 @@ class TestSyncApps:
         fake = FakeSyncClient()
         Apps(fake).list()
         op, kwargs = fake.calls[0]
-        assert op is _list_op.sync
+        assert op is _list_op
         assert kwargs == {}
 
     def test_get_dispatches_get_op(self) -> None:
         fake = FakeSyncClient()
         Apps(fake).get(APP_ID)
         op, kwargs = fake.calls[0]
-        assert op is _get_op.sync
+        assert op is _get_op
         assert kwargs == {"id": APP_ID}
 
     def test_create_builds_dto(self) -> None:
         fake = FakeSyncClient()
         Apps(fake).create("checkout-prod")
         op, kwargs = fake.calls[0]
-        assert op is _create_op.sync
+        assert op is _create_op
         body = kwargs["body"]
         assert isinstance(body, CreateAppDto)
         assert body.name == "checkout-prod"
@@ -67,7 +67,7 @@ class TestSyncApps:
         fake = FakeSyncClient()
         Apps(fake).update(APP_ID, name="renamed")
         op, kwargs = fake.calls[0]
-        assert op is _edit_op.sync
+        assert op is _edit_op
         assert kwargs["id"] == APP_ID
         assert isinstance(kwargs["body"], CreateAppDto)
         assert kwargs["body"].name == "renamed"
@@ -76,7 +76,7 @@ class TestSyncApps:
         fake = FakeSyncClient()
         Apps(fake).delete(APP_ID)
         op, kwargs = fake.calls[0]
-        assert op is _delete_op.sync
+        assert op is _delete_op
         assert kwargs == {"id": APP_ID}
 
 
@@ -86,7 +86,7 @@ class TestAsyncApps:
         fake = FakeAsyncClient()
         await AsyncApps(fake).list()
         op, kwargs = fake.calls[0]
-        assert op is _list_op.asyncio
+        assert op is _list_op
         assert kwargs == {}
 
     @pytest.mark.asyncio
@@ -94,5 +94,5 @@ class TestAsyncApps:
         fake = FakeAsyncClient()
         await AsyncApps(fake).create("svc-a")
         op, kwargs = fake.calls[0]
-        assert op is _create_op.asyncio
+        assert op is _create_op
         assert isinstance(kwargs["body"], CreateAppDto)

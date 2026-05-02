@@ -30,7 +30,7 @@ class Apps:
         Returns:
             A list of :class:`App`, or ``None`` on fail-open.
         """
-        return self._client._invoke(_list_op.sync)
+        return self._client._invoke(_list_op)
 
     def get(self, app_id: str) -> App | None:
         """Fetch an app by UUID.
@@ -38,7 +38,7 @@ class Apps:
         Args:
             app_id: UUID of the app.
         """
-        return self._client._invoke(_get_op.sync, id=app_id)
+        return self._client._invoke(_get_op, id=app_id)
 
     def create(self, name: str) -> App | None:
         """Create an app under the calling org.
@@ -46,7 +46,7 @@ class Apps:
         Args:
             name: Human-readable app name.
         """
-        return self._client._invoke(_create_op.sync, body=CreateAppDto(name=name))
+        return self._client._invoke(_create_op, body=CreateAppDto(name=name))
 
     def update(self, app_id: str, *, name: str) -> OkResponseDto | None:
         """Edit an app's name.
@@ -55,11 +55,11 @@ class Apps:
             app_id: UUID of the app to edit.
             name: New name.
         """
-        return self._client._invoke(_edit_op.sync, id=app_id, body=CreateAppDto(name=name))
+        return self._client._invoke(_edit_op, id=app_id, body=CreateAppDto(name=name))
 
     def delete(self, app_id: str) -> OkResponseDto | None:
         """Soft-delete an app."""
-        return self._client._invoke(_delete_op.sync, id=app_id)
+        return self._client._invoke(_delete_op, id=app_id)
 
 
 class AsyncApps:
@@ -70,20 +70,20 @@ class AsyncApps:
 
     async def list(self) -> List[App] | None:
         """See :meth:`Apps.list`."""
-        return await self._client._invoke(_list_op.asyncio)
+        return await self._client._invoke(_list_op)
 
     async def get(self, app_id: str) -> App | None:
         """See :meth:`Apps.get`."""
-        return await self._client._invoke(_get_op.asyncio, id=app_id)
+        return await self._client._invoke(_get_op, id=app_id)
 
     async def create(self, name: str) -> App | None:
         """See :meth:`Apps.create`."""
-        return await self._client._invoke(_create_op.asyncio, body=CreateAppDto(name=name))
+        return await self._client._invoke(_create_op, body=CreateAppDto(name=name))
 
     async def update(self, app_id: str, *, name: str) -> OkResponseDto | None:
         """See :meth:`Apps.update`."""
-        return await self._client._invoke(_edit_op.asyncio, id=app_id, body=CreateAppDto(name=name))
+        return await self._client._invoke(_edit_op, id=app_id, body=CreateAppDto(name=name))
 
     async def delete(self, app_id: str) -> OkResponseDto | None:
         """See :meth:`Apps.delete`."""
-        return await self._client._invoke(_delete_op.asyncio, id=app_id)
+        return await self._client._invoke(_delete_op, id=app_id)

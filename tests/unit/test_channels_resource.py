@@ -44,14 +44,14 @@ class TestSyncChannels:
         fake = FakeSyncClient()
         Channels(fake).get(CHANNEL_ID)
         op, kwargs = fake.calls[0]
-        assert op is _get_op.sync
+        assert op is _get_op
         assert kwargs == {"id": CHANNEL_ID}
 
     def test_create_builds_dto(self) -> None:
         fake = FakeSyncClient()
         Channels(fake).create("alerts", APP_ID)
         op, kwargs = fake.calls[0]
-        assert op is _create_op.sync
+        assert op is _create_op
         body = kwargs["body"]
         assert isinstance(body, CreateChannelDto)
         assert body.name == "alerts"
@@ -61,14 +61,14 @@ class TestSyncChannels:
         fake = FakeSyncClient()
         Channels(fake).update(CHANNEL_ID)
         op, kwargs = fake.calls[0]
-        assert op is _update_op.sync
+        assert op is _update_op
         assert kwargs == {"id": CHANNEL_ID}
 
     def test_delete_dispatches_delete_op(self) -> None:
         fake = FakeSyncClient()
         Channels(fake).delete(CHANNEL_ID)
         op, kwargs = fake.calls[0]
-        assert op is _delete_op.sync
+        assert op is _delete_op
         assert kwargs == {"id": CHANNEL_ID}
 
 
@@ -78,7 +78,7 @@ class TestAsyncChannels:
         fake = FakeAsyncClient()
         await AsyncChannels(fake).create("alerts", APP_ID)
         op, kwargs = fake.calls[0]
-        assert op is _create_op.asyncio
+        assert op is _create_op
         assert isinstance(kwargs["body"], CreateChannelDto)
 
     @pytest.mark.asyncio
@@ -86,5 +86,5 @@ class TestAsyncChannels:
         fake = FakeAsyncClient()
         await AsyncChannels(fake).get(CHANNEL_ID)
         op, kwargs = fake.calls[0]
-        assert op is _get_op.asyncio
+        assert op is _get_op
         assert kwargs == {"id": CHANNEL_ID}

@@ -36,7 +36,7 @@ class Channels:
         Returns:
             The :class:`Channel`, or ``None`` on fail-open.
         """
-        return self._client._invoke(_get_op.sync, id=channel_id)
+        return self._client._invoke(_get_op, id=channel_id)
 
     def create(self, name: str, app_id: str) -> Channel | None:
         """Create a channel inside an app.
@@ -49,7 +49,7 @@ class Channels:
             The created :class:`Channel`, or ``None`` on fail-open.
         """
         return self._client._invoke(
-            _create_op.sync, body=_build_create_dto(name=name, app_id=app_id)
+            _create_op, body=_build_create_dto(name=name, app_id=app_id)
         )
 
     def update(self, channel_id: str) -> OkResponseDto | None:
@@ -58,11 +58,11 @@ class Channels:
         The backend currently exposes ``PUT /channel/:id`` without a body.
         See ``channel_controller_update_channel`` in the generated layer.
         """
-        return self._client._invoke(_update_op.sync, id=channel_id)
+        return self._client._invoke(_update_op, id=channel_id)
 
     def delete(self, channel_id: str) -> OkResponseDto | None:
         """Soft-delete a channel."""
-        return self._client._invoke(_delete_op.sync, id=channel_id)
+        return self._client._invoke(_delete_op, id=channel_id)
 
 
 class AsyncChannels:
@@ -73,18 +73,18 @@ class AsyncChannels:
 
     async def get(self, channel_id: str) -> Channel | None:
         """See :meth:`Channels.get`."""
-        return await self._client._invoke(_get_op.asyncio, id=channel_id)
+        return await self._client._invoke(_get_op, id=channel_id)
 
     async def create(self, name: str, app_id: str) -> Channel | None:
         """See :meth:`Channels.create`."""
         return await self._client._invoke(
-            _create_op.asyncio, body=_build_create_dto(name=name, app_id=app_id)
+            _create_op, body=_build_create_dto(name=name, app_id=app_id)
         )
 
     async def update(self, channel_id: str) -> OkResponseDto | None:
         """See :meth:`Channels.update`."""
-        return await self._client._invoke(_update_op.asyncio, id=channel_id)
+        return await self._client._invoke(_update_op, id=channel_id)
 
     async def delete(self, channel_id: str) -> OkResponseDto | None:
         """See :meth:`Channels.delete`."""
-        return await self._client._invoke(_delete_op.asyncio, id=channel_id)
+        return await self._client._invoke(_delete_op, id=channel_id)
