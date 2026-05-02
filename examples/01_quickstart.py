@@ -1,67 +1,73 @@
-"""
-01 — Quickstart
+"""01 — Quickstart.
 
-Create an app, a channel, publish events, list them, then clean up.
-Run: uv run 01_quickstart.py
+Create an app and channel, publish a few events, list them, then clean up.
+
+Run::
+
+    uv run examples/01_quickstart.py
 """
 
-from config import API_KEY, TENANT_ID, BASE_URL, require_credentials
+from config import APP_ID, BASE_URL, CHANNEL_ID, ENVIRONMENT, require_credentials
 
 require_credentials()
 
-from axonpush import AxonPush, EventType
+from axonpush import AxonPush, EventType  # noqa: E402
 
 
-def main():
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as client:
-        # 1. Create an app
-        app = client.apps.create(name="quickstart-demo")
-        print(f"Created app: {app.name} (id={app.id})")
+def main() -> None:
+    with AxonPush(base_url=BASE_URL, environment=ENVIRONMENT) as client:
+        # Reuse caller-supplied IDs when present; otherwise spin up scratch resources.
+        owns_app = APP_ID is None
+        owns_channel = CHANNEL_ID is None
 
-        # 2. Create a channel on that app
-        channel = client.channels.create(name="events", app_id=app.id)
-        print(f"Created channel: {channel.name} (id={channel.id})")
+        app_id = APP_ID
+        channel_id = CHANNEL_ID
+        if owns_app:
+            app = client.apps.create(name="quickstart-demo")
+            assert app is not None
+            app_id = app.id
+            print(f"Created app: {app.name} (id={app.id})")
+        if owns_channel:
+            assert app_id is not None
+            channel = client.channels.create("events", app_id)
+            assert channel is not None
+            channel_id = channel.id
+            print(f"Created channel: {channel.name} (id={channel.id})")
 
-        # 3. Publish events. These are async-ingested by the server — publish()
-        # returns with queued=True within a few ms, and id/created_at are populated
-        # once the write lands (visible via events.list() below).
-        e1 = client.events.publish(
-            identifier="task.started",
-            payload={"task": "summarize article", "url": "https://example.com"},
-            channel_id=channel.id,
-            agent_id="research-agent",
-            event_type=EventType.AGENT_START,
-        )
-        print(f"Published: {e1.identifier} (queued={e1.queued})")
+        assert channel_id is not None
 
-        e2 = client.events.publish(
-            identifier="task.progress",
-            payload={"progress": 50, "status": "fetching content"},
-            channel_id=channel.id,
-            agent_id="research-agent",
-            event_type=EventType.CUSTOM,
-        )
-        print(f"Published: {e2.identifier} (queued={e2.queued})")
+        # Publishes are async-ingested. The returned Event carries event_id +
+        # queued=True within a few ms; the durable shape (with a DB id and
+        # full payload) appears via events.list() once the write lands.
+        steps = [
+            ("task.started", {"task": "summarize article", "url": "https://example.com"},
+             EventType.AGENT_START),
+            ("task.progress", {"progress": 50, "status": "fetching content"},
+             EventType.CUSTOM),
+            ("task.completed", {"summary": "Article discusses AI advances in 2026."},
+             EventType.AGENT_END),
+        ]
+        for identifier, payload, event_type in steps:
+            ev = client.events.publish(
+                identifier, payload, channel_id,
+                agent_id="research-agent",
+                event_type=event_type,
+            )
+            assert ev is not None
+            print(f"Published: {identifier} (event_id={ev.event_id}, queued={ev.queued})")
 
-        e3 = client.events.publish(
-            identifier="task.completed",
-            payload={"summary": "Article discusses AI advancements in 2025."},
-            channel_id=channel.id,
-            agent_id="research-agent",
-            event_type=EventType.AGENT_END,
-        )
-        print(f"Published: {e3.identifier} (queued={e3.queued})")
+        listing = client.events.list(channel_id, limit=10)
+        if listing is not None:
+            print(f"\nChannel has {len(listing.data)} event(s) listed:")
+            for ev in listing.data:
+                print(f"  [{ev.event_type}] {ev.identifier}")
 
-        # 4. List events
-        events = client.events.list(channel_id=channel.id)
-        print(f"\nChannel has {len(events)} events:")
-        for ev in events:
-            print(f"  [{ev.event_type}] {ev.identifier} — {ev.payload}")
-
-        # 5. Clean up
-        client.channels.delete(channel_id=channel.id)
-        client.apps.delete(app_id=app.id)
-        print("\nCleaned up resources.")
+        if owns_channel:
+            client.channels.delete(channel_id)
+        if owns_app and app_id is not None:
+            client.apps.delete(app_id)
+        if owns_app or owns_channel:
+            print("\nCleaned up scratch resources.")
 
 
 if __name__ == "__main__":

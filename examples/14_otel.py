@@ -1,54 +1,63 @@
-"""
-14 — OpenTelemetry span exporter
+"""14 — OpenTelemetry span exporter.
 
-If your service is already instrumented with the OpenTelemetry SDK, add
-``AxonPushSpanExporter`` to your tracer provider and every span you create
-ships to AxonPush as an ``app.span`` event alongside whatever other OTel
-backends you already export to.
+If your service is already instrumented with the OpenTelemetry SDK, plug
+``AxonPushSpanExporter`` into your ``TracerProvider``. Every span you
+record gets shipped to AxonPush as an ``app.span`` event alongside any
+other backends you export to (Jaeger, Tempo, Honeycomb, etc.).
 
-Run: uv sync --extra otel
-     uv run 14_otel.py
+Run::
+
+    uv sync --extra otel
+    uv run examples/14_otel.py
 """
 
 import sys
 
-from config import API_KEY, TENANT_ID, BASE_URL, require_credentials
+from config import APP_ID, BASE_URL, CHANNEL_ID, ENVIRONMENT, require_credentials
 
 require_credentials()
 
-from axonpush import AxonPush
+from axonpush import AxonPush  # noqa: E402
 
 try:
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
     from axonpush.integrations.otel import AxonPushSpanExporter
 except ImportError:
     print("Install OTel integration: uv sync --extra otel")
     sys.exit(1)
 
 
-def main():
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as client:
-        app = client.apps.create(name="otel-demo")
-        channel = client.channels.create(name="spans", app_id=app.id)
-        print(f"App: {app.name} | Channel: {channel.name}\n")
+def main() -> None:
+    with AxonPush(base_url=BASE_URL, environment=ENVIRONMENT) as client:
+        owns_app = APP_ID is None
+        owns_channel = CHANNEL_ID is None
+        app_id = APP_ID
+        channel_id = CHANNEL_ID
+        if owns_app:
+            app = client.apps.create(name="otel-demo")
+            assert app is not None
+            app_id = app.id
+        if owns_channel:
+            assert app_id is not None
+            channel = client.channels.create("spans", app_id)
+            assert channel is not None
+            channel_id = channel.id
+        assert channel_id is not None
 
         provider = TracerProvider()
-        provider.add_span_processor(
-            SimpleSpanProcessor(
-                AxonPushSpanExporter(
-                    client=client,
-                    channel_id=channel.id,
-                    service_name="my-api",
-                    environment="dev",
-                )
-            )
+        exporter = AxonPushSpanExporter(
+            client=client,
+            channel_id=channel_id,
+            service_name="my-api",
+            environment=ENVIRONMENT or "dev",
         )
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         tracer = trace.get_tracer("my_app")
 
-        # Emit a few nested spans to exercise the exporter.
         with tracer.start_as_current_span("POST /chat") as req:
             req.set_attribute("http.method", "POST")
             req.set_attribute("http.route", "/chat")
@@ -64,15 +73,18 @@ def main():
         provider.force_flush()
         provider.shutdown()
 
-        events = client.events.list(channel_id=channel.id, limit=20)
-        print(f"\nSpans published ({len(events)}):")
-        for ev in events:
-            name = ev.payload.get("name", "?")
-            print(f"  [{ev.event_type}] {name}")
+        listing = client.events.list(channel_id, limit=20)
+        if listing is not None:
+            print(f"\nSpans published ({len(listing.data)}):")
+            for ev in listing.data:
+                props = ev.payload.additional_properties if ev.payload else {}
+                name = props.get("name", "?")
+                print(f"  [{ev.event_type}] {name}")
 
-        client.channels.delete(channel_id=channel.id)
-        client.apps.delete(app_id=app.id)
-        print("\nCleaned up.")
+        if owns_channel:
+            client.channels.delete(channel_id)
+        if owns_app and app_id is not None:
+            client.apps.delete(app_id)
 
 
 if __name__ == "__main__":

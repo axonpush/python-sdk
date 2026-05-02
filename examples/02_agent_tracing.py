@@ -1,102 +1,105 @@
-"""
-02 — Agent Tracing
+"""02 — Agent tracing.
 
-Simulate a research agent running a multi-step task.
-All events share a trace_id so you can reconstruct the full execution.
-Run: uv run 02_agent_tracing.py
+Walk a research agent through a multi-step task. Every event shares a
+``trace_id`` so the backend can stitch them back into a single trace and
+return a summary at the end.
+
+Run::
+
+    uv run examples/02_agent_tracing.py
 """
 
 import time
 
-from config import API_KEY, TENANT_ID, BASE_URL, require_credentials
+from config import APP_ID, BASE_URL, CHANNEL_ID, ENVIRONMENT, require_credentials
 
 require_credentials()
 
-from axonpush import AxonPush, EventType
-from axonpush._tracing import get_or_create_trace
+from axonpush import AxonPush, EventType, get_or_create_trace  # noqa: E402
 
 
-def main():
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as client:
-        app = client.apps.create(name="tracing-demo")
-        channel = client.channels.create(name="research", app_id=app.id)
-        print(f"App: {app.name} | Channel: {channel.name}\n")
+def main() -> None:
+    with AxonPush(base_url=BASE_URL, environment=ENVIRONMENT) as client:
+        owns_app = APP_ID is None
+        owns_channel = CHANNEL_ID is None
+        app_id = APP_ID
+        channel_id = CHANNEL_ID
+        if owns_app:
+            app = client.apps.create(name="tracing-demo")
+            assert app is not None
+            app_id = app.id
+        if owns_channel:
+            assert app_id is not None
+            channel = client.channels.create("research", app_id)
+            assert channel is not None
+            channel_id = channel.id
+        assert channel_id is not None
 
         trace = get_or_create_trace()
-        trace_id = trace.trace_id
         agent_id = "research-agent"
+        print(f"Trace: {trace.trace_id}\n")
 
-        print(f"Trace ID: {trace_id}\n")
+        def emit(identifier: str, payload: dict, event_type: EventType, **extra: object) -> None:
+            client.events.publish(
+                identifier, payload, channel_id,
+                agent_id=agent_id,
+                trace_id=trace.trace_id,
+                span_id=trace.next_span_id(),
+                event_type=event_type,
+                **extra,
+            )
 
-        # Step 1: Agent starts
-        client.events.publish(
-            identifier="research.start",
-            payload={"goal": "Find recent papers on transformer architectures"},
-            channel_id=channel.id, agent_id=agent_id, trace_id=trace_id,
-            span_id=trace.next_span_id(), event_type=EventType.AGENT_START,
-        )
-        print("[agent.start] Research agent started")
-        time.sleep(0.3)
-
-        # Step 2: Tool call — web search
-        client.events.publish(
-            identifier="web_search",
-            payload={"query": "transformer architecture papers 2025", "engine": "google_scholar"},
-            channel_id=channel.id, agent_id=agent_id, trace_id=trace_id,
-            span_id=trace.next_span_id(), event_type=EventType.AGENT_TOOL_CALL_START,
-            metadata={"tool_name": "web_search"},
-        )
-        print("[tool_call.start] Searching: 'transformer architecture papers 2025'")
-        time.sleep(0.5)
-
-        # Step 3: Tool call result
-        client.events.publish(
-            identifier="web_search",
-            payload={"results": [
-                {"title": "Attention Is Still All You Need", "year": 2025},
-                {"title": "Sparse Transformers at Scale", "year": 2025},
-            ], "count": 2},
-            channel_id=channel.id, agent_id=agent_id, trace_id=trace_id,
-            span_id=trace.next_span_id(), event_type=EventType.AGENT_TOOL_CALL_END,
-            metadata={"tool_name": "web_search"},
-        )
-        print("[tool_call.end] Found 2 papers")
-        time.sleep(0.3)
-
-        # Step 4: Agent message
-        client.events.publish(
-            identifier="summary",
-            payload={"message": "Found 2 relevant papers on transformer architectures from 2025."},
-            channel_id=channel.id, agent_id=agent_id, trace_id=trace_id,
-            span_id=trace.next_span_id(), event_type=EventType.AGENT_MESSAGE,
-        )
-        print("[agent.message] Generated summary")
+        emit("research.start",
+             {"goal": "Find recent papers on transformer architectures"},
+             EventType.AGENT_START)
+        print("[start] research agent started")
         time.sleep(0.2)
 
-        # Step 5: Agent ends
-        client.events.publish(
-            identifier="research.end",
-            payload={"status": "success", "papers_found": 2},
-            channel_id=channel.id, agent_id=agent_id, trace_id=trace_id,
-            span_id=trace.next_span_id(), event_type=EventType.AGENT_END,
-        )
-        print("[agent.end] Research complete\n")
+        emit("web_search",
+             {"query": "transformer architecture papers 2026", "engine": "google_scholar"},
+             EventType.AGENT_TOOL_CALL_START,
+             metadata={"tool_name": "web_search"})
+        print("[tool_call.start] searching")
+        time.sleep(0.4)
 
-        # Fetch trace summary
+        emit("web_search",
+             {"results": [
+                 {"title": "Attention Is Still All You Need", "year": 2026},
+                 {"title": "Sparse Transformers at Scale", "year": 2026},
+             ], "count": 2},
+             EventType.AGENT_TOOL_CALL_END,
+             metadata={"tool_name": "web_search"})
+        print("[tool_call.end] found 2 papers")
+        time.sleep(0.2)
+
+        emit("summary",
+             {"message": "Found 2 relevant papers on transformer architectures from 2026."},
+             EventType.AGENT_MESSAGE)
+        print("[agent.message] summary generated")
+        time.sleep(0.2)
+
+        emit("research.end",
+             {"status": "success", "papers_found": 2},
+             EventType.AGENT_END)
+        print("[end] research complete\n")
+
+        # Backend ingest is eventually consistent — give it a beat before
+        # asking for the trace summary.
         time.sleep(0.5)
-        summary = client.traces.get_summary(trace_id)
-        print("--- Trace Summary ---")
-        print(f"  Trace ID:    {summary.trace_id}")
-        print(f"  Events:      {summary.event_count}")
-        print(f"  Agents:      {summary.agents}")
-        print(f"  Duration:    {summary.duration_ms}ms")
-        print(f"  Tool calls:  {summary.tool_call_count}")
-        print(f"  Errors:      {summary.error_count}")
+        summary = client.traces.summary(trace.trace_id)
+        if summary is not None:
+            print("--- Trace Summary ---")
+            print(f"  Trace ID:     {summary.trace_id}")
+            print(f"  Events:       {int(summary.event_count)}")
+            print(f"  Agents:       {summary.agents}")
+            print(f"  Duration:     {summary.duration:.0f}ms")
+            print(f"  Tool calls:   {int(summary.tool_call_count)}")
+            print(f"  Errors:       {int(summary.error_count)}")
 
-        # Clean up
-        client.channels.delete(channel_id=channel.id)
-        client.apps.delete(app_id=app.id)
-        print("\nCleaned up.")
+        if owns_channel:
+            client.channels.delete(channel_id)
+        if owns_app and app_id is not None:
+            client.apps.delete(app_id)
 
 
 if __name__ == "__main__":

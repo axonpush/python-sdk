@@ -4,7 +4,123 @@ All notable changes to the AxonPush Python SDK are documented here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.11] – 2026-05-01
+## [0.0.10] – 2026-05-02
+
+This is the actual `0.0.10` PyPI release. The two stale entries below
+(`[0.0.10] – 2026-04-25` and `[0.0.11] – 2026-05-01`) were local bumps that
+never shipped to PyPI; their content was a work-in-progress of what
+eventually became this entry. Both are kept here as historical trail
+markers — everything described in them is included in this release plus
+the breaking changes called out below.
+
+### Breaking
+
+- **All IDs are `str` UUIDs on the public boundary.** Previously the SDK
+  accepted a mix of `int` and `Union[int, str]` for `app_id`, `channel_id`,
+  `event_id`, `trace_id`, `endpoint_id`, `agent_id`, `span_id`,
+  `parent_event_id`, `org_id`, `user_id`, `api_key_id`, and
+  `release_id`. They are all `str` now. Integration callbacks
+  (`channel_id` argument on `AxonPushCallbackHandler`,
+  `AxonPushLoggingHandler`, etc.) keep an `int | str` softening alias for
+  one release; passing an `int` emits a `DeprecationWarning` and is
+  coerced to `str`.
+- **Removed `connect_websocket` and the `WebSocketClient` alias.** Use
+  `client.connect_realtime()` and `RealtimeClient` (already the
+  underlying implementation since v0.1.0).
+- **Models moved to a flat `axonpush.models` namespace.** Every public
+  model is re-exported from `axonpush.models` over the auto-generated
+  `axonpush._internal.api.models` layer:
+
+  ```python
+  from axonpush.models import (
+      App, Channel, Event, EventDetails, EventType, Environment,
+      WebhookEndpoint, WebhookDelivery, Organization, User, ApiKey,
+      TraceListItem, TraceSummary, TraceStats,
+  )
+  # or, equivalently, from axonpush import App, Channel, …
+  ```
+
+  Submodule paths like `axonpush.models.events.Event` and
+  `axonpush.models.webhooks.WebhookEndpoint` are gone.
+
+### Added
+
+- **OpenAPI-driven HTTP client.** The transport layer at
+  `src/axonpush/_internal/api/` is now generated from the backend's
+  `/swagger/json` via `openapi-python-client`. Run `make codegen` to
+  refresh after a schema change. Every resource method delegates to a
+  generated `*_op.sync` / `*_op.asyncio` function — there are no
+  hand-rolled HTTP wrappers left.
+- **Structured backend errors.** Every `AxonPushError` carries
+  `status_code`, `code`, `hint`, and `request_id` parsed from the
+  backend's `{ code, message, hint, requestId }` global filter envelope.
+  `request_id` falls back to the `X-Request-Id` response header when
+  the body doesn't include it.
+- **`RetryableError` mixin.** `APIConnectionError`, `RateLimitError`,
+  and `ServerError` all subclass it. Catch `RetryableError` to handle
+  every transient failure in one branch.
+- **`Settings` reads env vars.** `AxonPush()` with zero kwargs now
+  works — `Settings` (a `pydantic_settings.BaseSettings` subclass)
+  picks up `AXONPUSH_API_KEY`, `AXONPUSH_TENANT_ID`, `AXONPUSH_BASE_URL`,
+  `AXONPUSH_ENVIRONMENT`, `AXONPUSH_TIMEOUT`, `AXONPUSH_MAX_RETRIES`,
+  and `AXONPUSH_FAIL_OPEN`. Constructor kwargs win over env vars.
+
+### Improved
+
+- **`BackgroundPublisher`** is now properly split into a sync
+  (`BackgroundPublisher`) and an async
+  (`AsyncBackgroundPublisher`) class. Both have a bounded queue, a
+  graceful flush, per-event error isolation, and a re-entrancy guard
+  against being called from inside their own worker (the sync/async
+  conflation in v0.0.9 was a real bug — async callers were sometimes
+  blocking the event loop on the sync queue).
+- **Trace propagation in integrations.** `parent_run_id` →
+  `parent_event_id` is now correctly threaded through the LangChain,
+  Deep Agents, and OpenTelemetry callbacks, so nested chains and
+  sub-agents land as a connected tree rather than as siblings.
+- **Anthropic integration** captures `prompt_tokens` /
+  `completion_tokens` / `total_tokens` from `Message.usage` and
+  surfaces them on the published event.
+
+### Fixed
+
+- **`print_capture` no longer leaks file descriptors on uncaught exit.**
+  The `atexit` hook now runs even when `setup_print_capture()` was never
+  paired with an explicit `unpatch()`.
+- **Realtime credential refresh race.** The refresh timer is now
+  scheduled only after the broker's CONNACK confirms the initial
+  connection landed. If the first connect fails the SDK no longer enters
+  a silent reconnect loop — the `ConnectionError` propagates to the
+  caller, who can decide how to retry.
+
+### Migration from v0.0.9
+
+1. **Replace `int` IDs with `str` everywhere.** Most callers were
+   already using string UUIDs; if you were assembling URLs by hand or
+   threading `int` IDs through your storage layer, switch to `str`.
+2. **Replace deep model imports with the flat namespace:**
+
+   ```python
+   # before
+   from axonpush.models.events import Event, EventType
+   from axonpush.models.webhooks import WebhookEndpoint
+
+   # after
+   from axonpush import Event, EventType, WebhookEndpoint
+   ```
+
+3. **Replace `client.connect_websocket()` with `client.connect_realtime()`.**
+   The signature is identical; the alias was only there to ease the
+   v0.0.9 → v0.1.0 transition.
+4. **Audit your error-handling clauses.** If you were catching
+   `httpx.HTTPError` directly (because the SDK didn't wrap them), wrap
+   with `AxonPushError` instead — every transport failure now flows
+   through the SDK's hierarchy.
+
+## [0.0.11] – 2026-05-01 (NEVER SHIPPED)
+
+> Stale local version bump that never reached PyPI. Its content is
+> rolled into the actual `0.0.10` release above.
 
 **Breaking**: this release pairs with the backend move from per-app
 environments to org-level environments, and reshapes the realtime MQTT
@@ -97,7 +213,10 @@ parameters.
   deprecation shims that internally open an MQTT subscription. They emit
   a `DeprecationWarning` on first call and will be removed in v0.2.0.
 
-## [0.0.10] – 2026-04-25
+## [0.0.10] – 2026-04-25 (NEVER SHIPPED)
+
+> Stale local version bump that never reached PyPI. Its content is
+> rolled into the actual `0.0.10` release at the top of this file.
 
 This release pairs with a server-side change: AxonPush now keys
 retry-idempotency on a server-generated `dedup_key` UUID per record
