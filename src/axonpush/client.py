@@ -1,205 +1,404 @@
+"""Public facade for the AxonPush SDK.
+
+Provides :class:`AxonPush` (synchronous) and :class:`AsyncAxonPush`
+(asynchronous) clients. Both expose lazily-loaded resource accessors and a
+single ``_invoke`` chokepoint that all resource modules route through, so
+retries, fail-open semantics and request-id propagation stay in one place.
+"""
+
 from __future__ import annotations
 
-import logging
-import os
-from contextlib import contextmanager
-from typing import Iterator, Optional
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
-from axonpush._auth import AuthConfig
-from axonpush._http import AsyncTransport, SyncTransport
-from axonpush.realtime.mqtt import RealtimeClient
-from axonpush.realtime.mqtt_async import AsyncRealtimeClient
-from axonpush.resources.apps import AppsResource, AsyncAppsResource
-from axonpush.resources.channels import AsyncChannelsResource, ChannelsResource
-from axonpush.resources.environments import AsyncEnvironmentsResource, EnvironmentsResource
-from axonpush.resources.events import AsyncEventsResource, EventsResource
-from axonpush.resources.traces import AsyncTracesResource, TracesResource
-from axonpush.resources.webhooks import AsyncWebhooksResource, WebhooksResource
+from pydantic import HttpUrl, SecretStr
 
-logger = logging.getLogger("axonpush")
-
-_ENV_VAR_PRECEDENCE = (
-    "AXONPUSH_ENVIRONMENT",
-    "SENTRY_ENVIRONMENT",
-    "APP_ENV",
-    "ENV",
+from axonpush._config import Settings
+from axonpush._internal.transport import (
+    build_async_client,
+    build_sync_client,
+    call_with_retries_async,
+    call_with_retries_sync,
 )
+from axonpush.exceptions import APIConnectionError
+
+if TYPE_CHECKING:
+    from axonpush._internal.api.client import AuthenticatedClient
+
+R = TypeVar("R")
 
 
-def _detect_environment() -> Optional[str]:
-    for name in _ENV_VAR_PRECEDENCE:
-        val = os.getenv(name)
-        if val:
-            return val
-    return None
+def _build_settings(
+    *,
+    api_key: str | SecretStr | None,
+    tenant_id: str | None,
+    base_url: str | HttpUrl | None,
+    environment: str | None,
+    timeout: float | None,
+    max_retries: int | None,
+    fail_open: bool | None,
+) -> Settings:
+    base = Settings()
+    overrides: dict[str, Any] = {}
+    if api_key is not None:
+        overrides["api_key"] = (
+            api_key if isinstance(api_key, SecretStr) else SecretStr(api_key)
+        )
+    if tenant_id is not None:
+        overrides["tenant_id"] = tenant_id
+    if base_url is not None:
+        overrides["base_url"] = (
+            base_url if isinstance(base_url, HttpUrl) else HttpUrl(str(base_url))
+        )
+    if environment is not None:
+        overrides["environment"] = environment
+    if timeout is not None:
+        overrides["timeout"] = timeout
+    if max_retries is not None:
+        overrides["max_retries"] = max_retries
+    if fail_open is not None:
+        overrides["fail_open"] = fail_open
+    if not overrides:
+        return base
+    return base.model_copy(update=overrides)
 
 
 class AxonPush:
-    """Synchronous AxonPush client. Thread-safe.
+    """Synchronous AxonPush client.
 
-    Usage::
+    Args:
+        api_key: API key. Falls back to ``AXONPUSH_API_KEY``.
+        tenant_id: Tenant id. Falls back to ``AXONPUSH_TENANT_ID``.
+        base_url: Backend base URL. Falls back to ``AXONPUSH_BASE_URL``.
+        environment: Logical environment label (sent as
+            ``X-Axonpush-Environment``). Falls back to
+            ``AXONPUSH_ENVIRONMENT``.
+        timeout: Per-request timeout in seconds. Falls back to
+            ``AXONPUSH_TIMEOUT``.
+        max_retries: Number of retry attempts on retryable failures. Falls
+            back to ``AXONPUSH_MAX_RETRIES``.
+        fail_open: When true, suppress
+            :class:`~axonpush.exceptions.APIConnectionError` and return
+            ``None`` from :meth:`_invoke`. Falls back to
+            ``AXONPUSH_FAIL_OPEN``.
 
-        with AxonPush(api_key="ak_...", tenant_id="org_...", environment="production") as client:
-            event = client.events.publish(
-                "web_search", {"query": "AI agents"}, channel_id="ch_...",
-                agent_id="researcher", event_type="agent.tool_call.start",
-            )
+    Example::
+
+        with AxonPush(api_key="ak_...", tenant_id="org_...") as client:
+            client.events.publish(...)
     """
 
     def __init__(
         self,
-        api_key: str,
-        tenant_id: str,
         *,
-        base_url: str = "https://api.axonpush.xyz",
-        timeout: float = 30.0,
-        fail_open: bool = True,
-        environment: Optional[str] = None,
-        iot_endpoint: Optional[str] = None,
+        api_key: str | SecretStr | None = None,
+        tenant_id: str | None = None,
+        base_url: str | HttpUrl | None = None,
+        environment: str | None = None,
+        timeout: float | None = None,
+        max_retries: int | None = None,
+        fail_open: bool | None = None,
     ) -> None:
-        resolved_env = environment if environment is not None else _detect_environment()
-        if resolved_env:
-            logger.debug(
-                "AxonPush environment=%s (resolved from %s)",
-                resolved_env,
-                "parameter" if environment else "env var",
-            )
-        self._auth = AuthConfig(api_key, tenant_id, base_url, environment=resolved_env)
-        self._fail_open = fail_open
-        self._iot_endpoint = iot_endpoint
-        self._transport = SyncTransport(self._auth, timeout, fail_open=fail_open)
-
-        self.events = EventsResource(self._transport, environment=resolved_env)
-        self.channels = ChannelsResource(self._transport, owner=self)
-        self.apps = AppsResource(self._transport)
-        self.environments = EnvironmentsResource(self._transport)
-        self.webhooks = WebhooksResource(self._transport)
-        self.traces = TracesResource(self._transport)
-
-    @contextmanager
-    def environment(self, env: str) -> Iterator[None]:
-        previous = self.events._environment
-        self.events._environment = env
-        try:
-            yield
-        finally:
-            self.events._environment = previous
-
-    def connect_realtime(
-        self,
-        *,
-        org_id: Optional[str] = None,
-        app_id: Optional[str] = None,
-        environment: Optional[str] = None,
-    ) -> Optional[RealtimeClient]:
-        rt = RealtimeClient(
-            self._transport,
-            org_id=org_id or self._auth.tenant_id,
-            app_id=app_id,
-            environment=environment if environment is not None else self.events._environment,
-            iot_endpoint=self._iot_endpoint,
+        self._settings = _build_settings(
+            api_key=api_key,
+            tenant_id=tenant_id,
+            base_url=base_url,
+            environment=environment,
+            timeout=timeout,
+            max_retries=max_retries,
+            fail_open=fail_open,
         )
+        self._client: AuthenticatedClient = build_sync_client(self._settings)
+        self._closed = False
+
+    @property
+    def environment(self) -> str | None:
+        """Return the configured environment label, or ``None`` if unset."""
+        return self._settings.environment
+
+    @property
+    def fail_open(self) -> bool:
+        """Whether the facade swallows :class:`APIConnectionError`."""
+        return self._settings.fail_open
+
+    @property
+    def settings(self) -> Settings:
+        """The frozen :class:`Settings` powering this client."""
+        return self._settings
+
+    @property
+    def http(self) -> "AuthenticatedClient":
+        """The underlying generated HTTP client (for resource modules)."""
+        return self._client
+
+    def _invoke(
+        self,
+        op: Any,
+        *,
+        _coerce: Callable[[Any], R] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Call ``op.sync_detailed`` through the retry layer.
+
+        Args:
+            op: The generated operation module to invoke.
+            _coerce: Optional transform applied to ``response.parsed``
+                before returning.
+            **kwargs: Keyword args forwarded to ``op.sync_detailed``.
+
+        Returns:
+            The parsed response (optionally coerced), or ``None`` when
+            ``fail_open=True`` and the call raised
+            :class:`APIConnectionError`.
+
+        Raises:
+            AxonPushError: When the call fails and ``fail_open`` is false
+                (or the failure is not a connection error).
+        """
         try:
-            rt.connect()
-        except Exception as exc:
-            if self._fail_open:
-                logger.warning(
-                    "AxonPush realtime connection failed: %s. "
-                    "The error was suppressed (fail_open=True).",
-                    exc,
-                )
+            response = call_with_retries_sync(
+                op,
+                client=self._client,
+                max_retries=self._settings.max_retries,
+                **kwargs,
+            )
+        except APIConnectionError:
+            if self._settings.fail_open:
                 return None
             raise
-        return rt
-
-    connect_websocket = connect_realtime
+        parsed = getattr(response, "parsed", response)
+        if _coerce is not None and parsed is not None:
+            return _coerce(parsed)
+        return parsed
 
     def close(self) -> None:
-        self._transport.close()
+        """Close the underlying HTTP client. Idempotent."""
+        if self._closed:
+            return
+        self._client.get_httpx_client().close()
+        self._closed = True
 
     def __enter__(self) -> "AxonPush":
         return self
 
-    def __exit__(self, *args: object) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()
+
+    def _resource(self, module_name: str, class_name: str) -> Any:
+        import importlib
+
+        module = importlib.import_module(f"axonpush.resources.{module_name}")
+        return getattr(module, class_name)(self)
+
+    @property
+    def events(self) -> Any:
+        """Events resource accessor (lazy import)."""
+        return self._resource("events", "EventsResource")
+
+    @property
+    def channels(self) -> Any:
+        """Channels resource accessor (lazy import)."""
+        return self._resource("channels", "ChannelsResource")
+
+    @property
+    def apps(self) -> Any:
+        """Apps resource accessor (lazy import)."""
+        return self._resource("apps", "AppsResource")
+
+    @property
+    def environments(self) -> Any:
+        """Environments resource accessor (lazy import)."""
+        return self._resource("environments", "EnvironmentsResource")
+
+    @property
+    def webhooks(self) -> Any:
+        """Webhooks resource accessor (lazy import)."""
+        return self._resource("webhooks", "WebhooksResource")
+
+    @property
+    def traces(self) -> Any:
+        """Traces resource accessor (lazy import)."""
+        return self._resource("traces", "TracesResource")
+
+    @property
+    def api_keys(self) -> Any:
+        """API keys resource accessor (lazy import)."""
+        return self._resource("api_keys", "ApiKeysResource")
+
+    @property
+    def organizations(self) -> Any:
+        """Organizations resource accessor (lazy import)."""
+        return self._resource("organizations", "OrganizationsResource")
+
+    def connect_realtime(self, **kwargs: Any) -> Any:
+        """Open a realtime (MQTT) connection.
+
+        Args:
+            **kwargs: Forwarded to
+                :class:`axonpush.realtime.mqtt.RealtimeClient`.
+
+        Returns:
+            A connected ``RealtimeClient`` instance.
+        """
+        from axonpush.realtime.mqtt import RealtimeClient
+
+        rt = RealtimeClient(self, **kwargs)
+        rt.connect()
+        return rt
 
 
 class AsyncAxonPush:
-    """Asynchronous AxonPush client. Task-safe."""
+    """Asynchronous AxonPush client.
+
+    Mirrors :class:`AxonPush` exactly; resource accessors return ``Async*``
+    classes and :meth:`close` is a coroutine.
+    """
 
     def __init__(
         self,
-        api_key: str,
-        tenant_id: str,
         *,
-        base_url: str = "https://api.axonpush.xyz",
-        timeout: float = 30.0,
-        fail_open: bool = True,
-        environment: Optional[str] = None,
-        iot_endpoint: Optional[str] = None,
+        api_key: str | SecretStr | None = None,
+        tenant_id: str | None = None,
+        base_url: str | HttpUrl | None = None,
+        environment: str | None = None,
+        timeout: float | None = None,
+        max_retries: int | None = None,
+        fail_open: bool | None = None,
     ) -> None:
-        resolved_env = environment if environment is not None else _detect_environment()
-        if resolved_env:
-            logger.debug(
-                "AxonPush environment=%s (resolved from %s)",
-                resolved_env,
-                "parameter" if environment else "env var",
-            )
-        self._auth = AuthConfig(api_key, tenant_id, base_url, environment=resolved_env)
-        self._fail_open = fail_open
-        self._iot_endpoint = iot_endpoint
-        self._transport = AsyncTransport(self._auth, timeout, fail_open=fail_open)
-
-        self.events = AsyncEventsResource(self._transport, environment=resolved_env)
-        self.channels = AsyncChannelsResource(self._transport, owner=self)
-        self.apps = AsyncAppsResource(self._transport)
-        self.environments = AsyncEnvironmentsResource(self._transport)
-        self.webhooks = AsyncWebhooksResource(self._transport)
-        self.traces = AsyncTracesResource(self._transport)
-
-    @contextmanager
-    def environment(self, env: str) -> Iterator[None]:
-        previous = self.events._environment
-        self.events._environment = env
-        try:
-            yield
-        finally:
-            self.events._environment = previous
-
-    async def connect_realtime(
-        self,
-        *,
-        org_id: Optional[str] = None,
-        app_id: Optional[str] = None,
-        environment: Optional[str] = None,
-    ) -> Optional[AsyncRealtimeClient]:
-        rt = AsyncRealtimeClient(
-            self._transport,
-            org_id=org_id or self._auth.tenant_id,
-            app_id=app_id,
-            environment=environment if environment is not None else self.events._environment,
-            iot_endpoint=self._iot_endpoint,
+        self._settings = _build_settings(
+            api_key=api_key,
+            tenant_id=tenant_id,
+            base_url=base_url,
+            environment=environment,
+            timeout=timeout,
+            max_retries=max_retries,
+            fail_open=fail_open,
         )
+        self._client: AuthenticatedClient = build_async_client(self._settings)
+        self._closed = False
+
+    @property
+    def environment(self) -> str | None:
+        """Return the configured environment label, or ``None`` if unset."""
+        return self._settings.environment
+
+    @property
+    def fail_open(self) -> bool:
+        """Whether the facade swallows :class:`APIConnectionError`."""
+        return self._settings.fail_open
+
+    @property
+    def settings(self) -> Settings:
+        """The frozen :class:`Settings` powering this client."""
+        return self._settings
+
+    @property
+    def http(self) -> "AuthenticatedClient":
+        """The underlying generated HTTP client (for resource modules)."""
+        return self._client
+
+    async def _invoke(
+        self,
+        op: Any,
+        *,
+        _coerce: Callable[[Any], R] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Call ``op.asyncio_detailed`` through the retry layer.
+
+        See :meth:`AxonPush._invoke` for behaviour.
+        """
         try:
-            await rt.connect()
-        except Exception as exc:
-            if self._fail_open:
-                logger.warning(
-                    "AxonPush realtime connection failed: %s. "
-                    "The error was suppressed (fail_open=True).",
-                    exc,
-                )
+            response = await call_with_retries_async(
+                op,
+                client=self._client,
+                max_retries=self._settings.max_retries,
+                **kwargs,
+            )
+        except APIConnectionError:
+            if self._settings.fail_open:
                 return None
             raise
-        return rt
-
-    connect_websocket = connect_realtime
+        parsed = getattr(response, "parsed", response)
+        if _coerce is not None and parsed is not None:
+            return _coerce(parsed)
+        return parsed
 
     async def close(self) -> None:
-        await self._transport.close()
+        """Close the underlying HTTP client. Idempotent."""
+        if self._closed:
+            return
+        await self._client.get_async_httpx_client().aclose()
+        self._closed = True
+
+    aclose = close
 
     async def __aenter__(self) -> "AsyncAxonPush":
         return self
 
-    async def __aexit__(self, *args: object) -> None:
+    async def __aexit__(self, *exc: object) -> None:
         await self.close()
+
+    def _resource(self, module_name: str, class_name: str) -> Any:
+        import importlib
+
+        module = importlib.import_module(f"axonpush.resources.{module_name}")
+        return getattr(module, class_name)(self)
+
+    @property
+    def events(self) -> Any:
+        """Events resource accessor (lazy import)."""
+        return self._resource("events", "AsyncEventsResource")
+
+    @property
+    def channels(self) -> Any:
+        """Channels resource accessor (lazy import)."""
+        return self._resource("channels", "AsyncChannelsResource")
+
+    @property
+    def apps(self) -> Any:
+        """Apps resource accessor (lazy import)."""
+        return self._resource("apps", "AsyncAppsResource")
+
+    @property
+    def environments(self) -> Any:
+        """Environments resource accessor (lazy import)."""
+        return self._resource("environments", "AsyncEnvironmentsResource")
+
+    @property
+    def webhooks(self) -> Any:
+        """Webhooks resource accessor (lazy import)."""
+        return self._resource("webhooks", "AsyncWebhooksResource")
+
+    @property
+    def traces(self) -> Any:
+        """Traces resource accessor (lazy import)."""
+        return self._resource("traces", "AsyncTracesResource")
+
+    @property
+    def api_keys(self) -> Any:
+        """API keys resource accessor (lazy import)."""
+        return self._resource("api_keys", "AsyncApiKeysResource")
+
+    @property
+    def organizations(self) -> Any:
+        """Organizations resource accessor (lazy import)."""
+        return self._resource("organizations", "AsyncOrganizationsResource")
+
+    async def connect_realtime(self, **kwargs: Any) -> Any:
+        """Open an asynchronous realtime (MQTT) connection.
+
+        Args:
+            **kwargs: Forwarded to
+                :class:`axonpush.realtime.mqtt_async.AsyncRealtimeClient`.
+
+        Returns:
+            A connected ``AsyncRealtimeClient`` instance.
+        """
+        from axonpush.realtime.mqtt_async import AsyncRealtimeClient
+
+        rt = AsyncRealtimeClient(self, **kwargs)
+        await rt.connect()
+        return rt
+
+
+__all__ = ["AsyncAxonPush", "AxonPush"]
