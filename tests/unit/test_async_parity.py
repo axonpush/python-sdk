@@ -1,53 +1,42 @@
-"""Sync and async clients must produce identical request payloads.
-
-If they ever diverge, users who switch from AxonPush → AsyncAxonPush will
-get subtly different behavior. This test pins them to the same shape.
+"""Parity guard: every sync resource has the same public method set as its
+async sibling. If they ever drift, users who switch sync to async will hit
+mysterious AttributeErrors.
 """
+
 from __future__ import annotations
 
-import json
-
-import httpx
-
-from axonpush import AsyncAxonPush, AxonPush, EventType
-
-from tests.conftest import API_KEY, BASE_URL, TENANT_ID
-
-
-def _success():
-    return httpx.Response(
-        200,
-        json={
-            "id": 1,
-            "identifier": "x",
-            "payload": {},
-            "eventType": "custom",
-        },
-    )
+from axonpush.resources.api_keys import ApiKeys, AsyncApiKeys
+from axonpush.resources.apps import Apps, AsyncApps
+from axonpush.resources.channels import AsyncChannels, Channels
+from axonpush.resources.environments import AsyncEnvironments, Environments
+from axonpush.resources.events import AsyncEvents, Events
+from axonpush.resources.organizations import AsyncOrganizations, Organizations
+from axonpush.resources.traces import AsyncTraces, Traces
+from axonpush.resources.webhooks import AsyncWebhooks, Webhooks
 
 
-async def test_sync_and_async_produce_identical_publish_body(mock_router):
-    route = mock_router.post("/event").mock(return_value=_success())
+def _public_methods(cls: type) -> set[str]:
+    return {name for name, attr in vars(cls).items() if not name.startswith("_") and callable(attr)}
 
-    common_kwargs = dict(
-        identifier="parity_check",
-        payload={"a": 1, "b": [1, 2, 3]},
-        channel_id=5,
-        agent_id="bot",
-        trace_id="tr_fixed_trace_id",
-        span_id="sp_fixed",
-        event_type=EventType.AGENT_MESSAGE,
-        metadata={"src": "test"},
-    )
 
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        c.events.publish(**common_kwargs)
-    sync_body = json.loads(route.calls.last.request.content)
+_PAIRS: list[tuple[type, type]] = [
+    (Events, AsyncEvents),
+    (Channels, AsyncChannels),
+    (Apps, AsyncApps),
+    (Environments, AsyncEnvironments),
+    (Webhooks, AsyncWebhooks),
+    (Traces, AsyncTraces),
+    (ApiKeys, AsyncApiKeys),
+    (Organizations, AsyncOrganizations),
+]
 
-    async with AsyncAxonPush(
-        api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL
-    ) as c:
-        await c.events.publish(**common_kwargs)
-    async_body = json.loads(route.calls.last.request.content)
 
-    assert sync_body == async_body
+def test_every_sync_class_has_async_sibling() -> None:
+    for sync_cls, async_cls in _PAIRS:
+        sync_methods = _public_methods(sync_cls)
+        async_methods = _public_methods(async_cls)
+        assert sync_methods == async_methods, (
+            f"{sync_cls.__name__} <-> {async_cls.__name__} method-set drift: "
+            f"only on sync = {sync_methods - async_methods}, "
+            f"only on async = {async_methods - sync_methods}"
+        )

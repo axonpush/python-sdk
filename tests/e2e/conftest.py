@@ -31,6 +31,7 @@ Override knobs (env vars):
 * ``AXONPUSH_KEEP_SERVER=1`` — don't kill the server on teardown. Useful
   for debugging the backend after a test failure.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -63,8 +64,8 @@ class _BackendCreds:
     base_url: str
     api_key: str
     tenant_id: str
-    app_id: int
-    channel_id: int
+    app_id: str
+    channel_id: str
 
 
 def _ping_backend(base_url: str) -> bool:
@@ -102,8 +103,7 @@ def _wait_for_backend(
             last_exc = exc
         time.sleep(1.0)
     raise TimeoutError(
-        f"easy-push did not respond at {base_url} within {timeout:.0f}s "
-        f"(last error: {last_exc})"
+        f"easy-push did not respond at {base_url} within {timeout:.0f}s (last error: {last_exc})"
     )
 
 
@@ -305,7 +305,7 @@ def _bootstrap(base_url: str) -> _BackendCreds:
     sql = f"""
 WITH new_org AS (
   INSERT INTO organization (slug, name, description)
-  VALUES ($${'pytest-org-' + suffix}$$, $${'pytest-org-' + suffix}$$, $$ephemeral pytest org$$)
+  VALUES ($${"pytest-org-" + suffix}$$, $${"pytest-org-" + suffix}$$, $$ephemeral pytest org$$)
   RETURNING id
 ),
 new_user AS (
@@ -321,7 +321,7 @@ new_membership AS (
 new_apikey AS (
   INSERT INTO api_key (name, prefix, "hashedKey", "organizationId", "createdById", scopes)
   SELECT
-    $${'pytest-key-' + suffix}$$,
+    $${"pytest-key-" + suffix}$$,
     $${prefix}$$,
     $${hashed_key}$$,
     u."organizationId",
@@ -341,7 +341,7 @@ SELECT u.id || '|' || u."organizationId" FROM new_user u, new_membership, new_ap
     with httpx.Client(base_url=base_url, timeout=10.0) as http:
         r = http.post("/apps", json={"name": f"pytest-app-{suffix}"}, headers=auth)
         r.raise_for_status()
-        app_id = int(r.json()["id"])
+        app_id = str(r.json()["id"])
 
         r = http.post(
             "/channel",
@@ -349,7 +349,7 @@ SELECT u.id || '|' || u."organizationId" FROM new_user u, new_membership, new_ap
             headers=auth,
         )
         r.raise_for_status()
-        channel_id = int(r.json()["id"])
+        channel_id = str(r.json()["id"])
 
     return _BackendCreds(
         base_url=base_url,

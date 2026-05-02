@@ -1,44 +1,56 @@
-"""
-11 — Loguru integration
+"""11 — Loguru integration.
 
-Loguru is a popular alternative to stdlib logging that's loved for its
-ergonomic API. This example wires a Loguru sink that forwards records to
-AxonPush as ``app.log`` events.
+Loguru is a popular alternative to stdlib logging. The
+``create_axonpush_loguru_sink`` helper returns a callable that you pass to
+``logger.add(sink, serialize=True)``. ``serialize=True`` is required —
+Loguru hands the sink a JSON string, which the sink then parses.
 
-Run: uv sync --extra loguru
-     uv run 11_loguru.py
+Run::
+
+    uv sync --extra loguru
+    uv run examples/11_loguru.py
 """
 
 import sys
 
-from config import API_KEY, TENANT_ID, BASE_URL, require_credentials
+from config import APP_ID, BASE_URL, CHANNEL_ID, ENVIRONMENT, require_credentials
 
 require_credentials()
 
-from axonpush import AxonPush
+from axonpush import AxonPush  # noqa: E402
 
 try:
     from loguru import logger
+
     from axonpush.integrations.loguru import create_axonpush_loguru_sink
 except ImportError:
     print("Install Loguru integration: uv sync --extra loguru")
     sys.exit(1)
 
 
-def main():
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as client:
-        app = client.apps.create(name="loguru-demo")
-        channel = client.channels.create(name="service-logs", app_id=app.id)
-        print(f"App: {app.name} | Channel: {channel.name}\n")
+def main() -> None:
+    with AxonPush(base_url=BASE_URL, environment=ENVIRONMENT) as client:
+        owns_app = APP_ID is None
+        owns_channel = CHANNEL_ID is None
+        app_id = APP_ID
+        channel_id = CHANNEL_ID
+        if owns_app:
+            app = client.apps.create(name="loguru-demo")
+            assert app is not None
+            app_id = app.id
+        if owns_channel:
+            assert app_id is not None
+            channel = client.channels.create("service-logs", app_id)
+            assert channel is not None
+            channel_id = channel.id
+        assert channel_id is not None
 
         sink = create_axonpush_loguru_sink(
             client=client,
-            channel_id=channel.id,
+            channel_id=channel_id,
             service_name="my-api",
-            environment="dev",
+            environment=ENVIRONMENT or "dev",
         )
-        # ``serialize=True`` is required — Loguru passes a JSON string of the
-        # record to the sink, which the AxonPush sink parses.
         sink_id = logger.add(sink, serialize=True)
 
         logger.info("user signed in", user_id=42, method="oauth")
@@ -52,16 +64,19 @@ def main():
         logger.remove(sink_id)
         sink.close()
 
-        events = client.events.list(channel_id=channel.id, limit=20)
-        print(f"\nEvents published ({len(events)}):")
-        for ev in events:
-            sev = ev.payload.get("severityText", "?")
-            body = ev.payload.get("body", "")
-            print(f"  [{sev}] {ev.identifier}: {body}")
+        listing = client.events.list(channel_id, limit=20)
+        if listing is not None:
+            print(f"\nEvents published ({len(listing.data)}):")
+            for ev in listing.data:
+                props = ev.payload.additional_properties if ev.payload else {}
+                sev = props.get("severityText", "?")
+                body = props.get("body", "")
+                print(f"  [{sev}] {ev.identifier}: {body}")
 
-        client.channels.delete(channel_id=channel.id)
-        client.apps.delete(app_id=app.id)
-        print("\nCleaned up.")
+        if owns_channel:
+            client.channels.delete(channel_id)
+        if owns_app and app_id is not None:
+            client.apps.delete(app_id)
 
 
 if __name__ == "__main__":

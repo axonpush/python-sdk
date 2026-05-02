@@ -1,3 +1,6 @@
-from axonpush.realtime.sse import AsyncSSESubscription, SSESubscription
+"""Realtime MQTT-over-WSS clients (sync + async)."""
 
-__all__ = ["AsyncSSESubscription", "SSESubscription"]
+from axonpush.realtime.mqtt import RealtimeClient
+from axonpush.realtime.mqtt_async import AsyncRealtimeClient
+
+__all__ = ["AsyncRealtimeClient", "RealtimeClient"]

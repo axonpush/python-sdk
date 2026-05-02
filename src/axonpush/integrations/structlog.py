@@ -1,10 +1,13 @@
 """Structlog integration for AxonPush.
 
-Structlog is the Python ecosystem's go-to library for structured logging in
-production services. This integration provides a structlog ``processor`` that
-forwards each log event to AxonPush as an OpenTelemetry-shaped ``app.log``.
+Provides a structlog ``processor`` that forwards each log event to
+AxonPush as an OpenTelemetry-shaped ``app.log`` (or ``agent.log``).
 
-Requires: ``pip install axonpush[structlog]``
+Tested against ``structlog>=24.0,<26``.
+
+Install::
+
+    pip install axonpush[structlog]
 
 Usage::
 
@@ -12,10 +15,10 @@ Usage::
     from axonpush import AxonPush
     from axonpush.integrations.structlog import axonpush_structlog_processor
 
-    client = AxonPush(api_key="ak_...", tenant_id="1")
+    client = AxonPush(api_key="ak_...", tenant_id="org_...")
     forwarder = axonpush_structlog_processor(
         client=client,
-        channel_id=1,
+        channel_id="ch_...",
         service_name="my-api",
     )
 
@@ -31,14 +34,15 @@ Usage::
     log = structlog.get_logger()
     log.error("connection refused", user_id=42)
 """
+
 from __future__ import annotations
 
 import logging as _stdlib_logging
 import time
-from typing import Any, Dict, Literal, MutableMapping, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Literal, MutableMapping, Optional
 
 try:
-    import structlog  # noqa: F401 — verify the package is installed
+    import structlog  # noqa: F401
 except ImportError:
     raise ImportError(
         "Structlog integration requires the 'structlog' extra. "
@@ -56,9 +60,15 @@ from axonpush.integrations._publisher import (
     DEFAULT_SHUTDOWN_TIMEOUT_S,
     detect_serverless,
     flush_after_invocation,
+    in_publisher_path,
 )
-from axonpush.integrations._utils import build_resource, fire_and_forget
-from axonpush.models.events import EventType
+from axonpush.integrations._utils import (
+    build_resource,
+    coerce_channel_id,
+    fire_and_forget,
+    is_async_client,
+)
+from axonpush.models import EventType
 
 if TYPE_CHECKING:
     from axonpush.client import AsyncAxonPush, AxonPush
@@ -72,15 +82,14 @@ class _AxonPushStructlogProcessor:
     """Callable structlog processor that forwards events to AxonPush.
 
     Non-destructive — returns the event dict unchanged so downstream
-    processors see it intact. Exposes ``flush(timeout=)`` and ``close()``
-    for graceful shutdown / Lambda-invocation flushing.
+    processors see it intact.
     """
 
     def __init__(
         self,
         *,
         client: "AxonPush | AsyncAxonPush",
-        channel_id: int,
+        channel_id: int | str,
         source: str = "app",
         service_name: Optional[str] = None,
         service_version: Optional[str] = None,
@@ -94,25 +103,23 @@ class _AxonPushStructlogProcessor:
             raise ValueError(f"source must be 'agent' or 'app', got {source!r}")
         resolved_mode = mode or "background"
         if resolved_mode not in ("background", "sync"):
-            raise ValueError(
-                f"mode must be 'background' or 'sync', got {resolved_mode!r}"
-            )
+            raise ValueError(f"mode must be 'background' or 'sync', got {resolved_mode!r}")
 
         self._client = client
-        self._channel_id = channel_id
+        self._channel_id = coerce_channel_id(channel_id)
         self._agent_id = agent_id
-        self._event_type = (
-            EventType.APP_LOG if source == "app" else EventType.AGENT_LOG
-        )
-
+        self._event_type = EventType.APP_LOG if source == "app" else EventType.AGENT_LOG
         self._resource = build_resource(service_name, service_version, environment)
 
         if resolved_mode == "background":
-            self._publisher: Optional[BackgroundPublisher] = BackgroundPublisher(
-                client,
-                queue_size=queue_size,
-                shutdown_timeout=shutdown_timeout,
-            )
+            if is_async_client(client):
+                self._publisher: Optional[BackgroundPublisher] = None
+            else:
+                self._publisher = BackgroundPublisher(
+                    client,  # type: ignore[arg-type]
+                    queue_size=queue_size,
+                    shutdown_timeout=shutdown_timeout,
+                )
         else:
             self._publisher = None
 
@@ -127,12 +134,10 @@ class _AxonPushStructlogProcessor:
             )
 
     def flush(self, timeout: Optional[float] = None) -> None:
-        """Block until queued records are published, or until timeout."""
         if self._publisher is not None:
             self._publisher.flush(timeout)
 
     def close(self) -> None:
-        """Stop the background worker and release resources."""
         if self._publisher is not None:
             self._publisher.close()
             self._publisher = None
@@ -143,6 +148,8 @@ class _AxonPushStructlogProcessor:
         method_name: str,
         event_dict: MutableMapping[str, Any],
     ) -> MutableMapping[str, Any]:
+        if in_publisher_path():
+            return event_dict
         try:
             publish_kwargs = self._build_publish_kwargs(method_name, event_dict)
         except Exception as exc:
@@ -183,6 +190,7 @@ class _AxonPushStructlogProcessor:
         elif isinstance(ts_value, str):
             try:
                 from datetime import datetime
+
                 dt = datetime.fromisoformat(ts_value.replace("Z", "+00:00"))
                 time_unix_nano = str(int(dt.timestamp() * 1_000_000_000))
             except (ValueError, AttributeError):
@@ -216,7 +224,7 @@ class _AxonPushStructlogProcessor:
 def axonpush_structlog_processor(
     *,
     client: "AxonPush | AsyncAxonPush",
-    channel_id: int,
+    channel_id: int | str,
     source: str = "app",
     service_name: Optional[str] = None,
     service_version: Optional[str] = None,
@@ -229,12 +237,8 @@ def axonpush_structlog_processor(
     """Return a structlog processor that forwards events to AxonPush.
 
     The processor is non-destructive — it does NOT modify the event dict
-    that flows to subsequent processors. Place it BEFORE the renderer
+    flowing to subsequent processors. Place it BEFORE the renderer
     (JSONRenderer / KeyValueRenderer) in the processor chain.
-
-    The returned object is a callable instance and exposes ``flush()`` /
-    ``close()`` methods for graceful shutdown. Publishing is non-blocking
-    by default; pass ``mode="sync"`` to fall back to blocking publishes.
     """
     return _AxonPushStructlogProcessor(
         client=client,

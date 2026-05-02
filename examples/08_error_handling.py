@@ -1,92 +1,97 @@
-"""
-08 — Error Handling
+"""08 — Error handling.
 
-Demonstrates how to handle various AxonPush errors gracefully.
-Run: uv run 08_error_handling.py
+Walk through the exception hierarchy. Every error subclasses
+``AxonPushError`` and carries ``status_code``, ``code``, ``hint``, and
+``request_id`` — pulled from the backend's standard
+``{ code, message, hint, requestId }`` envelope.
+
+``RetryableError`` is a marker mixin worn by ``APIConnectionError``,
+``RateLimitError``, and ``ServerError`` — anything safe to retry.
+
+Run::
+
+    uv run examples/08_error_handling.py
 """
 
-from config import API_KEY, TENANT_ID, BASE_URL, require_credentials
+import uuid
+
+from config import API_KEY, BASE_URL, ENVIRONMENT, TENANT_ID, require_credentials
 
 require_credentials()
 
-from axonpush import AxonPush
-from axonpush.exceptions import (
+from axonpush import (  # noqa: E402
     AuthenticationError,
-    NotFoundError,
-    ValidationError,
+    AxonPush,
     AxonPushError,
+    NotFoundError,
+    RateLimitError,
+    RetryableError,
+    ValidationError,
 )
 
 
-def demo_auth_error():
+def demo_auth_error() -> None:
     print("1. AuthenticationError (bad API key)")
     try:
-        with AxonPush(api_key="ak_invalid_key", tenant_id=TENANT_ID, base_url=BASE_URL) as client:
-            client.apps.list()
-    except AuthenticationError as e:
-        print(f"   Caught: {e}")
+        with AxonPush(api_key="ak_invalid_key", tenant_id=TENANT_ID, base_url=BASE_URL) as bad:
+            bad.apps.list()
+    except AuthenticationError as exc:
+        print(f"   {type(exc).__name__}: {exc} (request_id={exc.request_id})")
     print()
 
 
-def demo_not_found(client: AxonPush):
-    print("2. Resource not found (bad ID)")
+def demo_not_found(client: AxonPush) -> None:
+    print("2. NotFoundError (random UUID)")
+    bogus = str(uuid.uuid4())
     try:
-        client.apps.get(app_id=999999)
-    except AxonPushError as e:
-        print(f"   Caught: {type(e).__name__}: {e}")
+        client.apps.get(bogus)
+    except NotFoundError as exc:
+        print(f"   {type(exc).__name__}: status={exc.status_code} code={exc.code}")
+    except AxonPushError as exc:
+        print(f"   {type(exc).__name__}: {exc}")
     print()
 
 
-def demo_validation_error(client: AxonPush):
-    print("3. ValidationError (bad input)")
+def demo_validation_error(client: AxonPush) -> None:
+    print("3. ValidationError (name too short)")
     try:
         client.apps.create(name="ab")
-    except (ValidationError, AxonPushError) as e:
-        print(f"   Caught: {type(e).__name__}: {e}")
+    except ValidationError as exc:
+        print(f"   {type(exc).__name__}: {exc} (hint={exc.hint!r})")
+    except AxonPushError as exc:
+        print(f"   {type(exc).__name__}: {exc}")
     print()
 
 
-def demo_rate_limit():
-    print("4. RateLimitError (too many requests)")
-    print("   RateLimitError has a retry_after attribute (seconds).")
-    print("   try:")
-    print("       client.events.publish(...)")
-    print("   except RateLimitError as e:")
-    print("       time.sleep(e.retry_after or 1)")
+def demo_retry_classification() -> None:
+    print("4. Retry classification")
+    print("   Anything that subclasses RetryableError is safe to retry:")
+    print(f"     issubclass(RateLimitError, RetryableError) = {issubclass(RateLimitError, RetryableError)}")
+    print("   Wire-level retry is built-in (max_retries kwarg). For app-level")
+    print("   logic on RateLimitError, honour `exc.retry_after` (seconds).")
     print()
 
 
-def demo_context_manager():
-    print("5. Context manager pattern")
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as client:
-        apps = client.apps.list()
-        print(f"   Listed {len(apps)} apps inside context manager")
-    print("   Context manager exited — connections closed cleanly.")
-    print()
-
-
-def demo_catch_all():
-    print("6. Catch-all pattern")
+def demo_catch_all() -> None:
+    print("5. Catch-all pattern")
     print("   try:")
     print("       client.events.publish(...)")
     print("   except AuthenticationError: ...")
-    print("   except RateLimitError as e: ...")
-    print("   except AxonPushError as e:  # catches all SDK errors")
-    print("       ...")
+    print("   except RateLimitError as exc: time.sleep(exc.retry_after or 1)")
+    print("   except RetryableError: ...   # transient — back off and retry")
+    print("   except AxonPushError: ...    # permanent — surface to caller")
     print()
 
 
-def main():
-    print("=== AxonPush Error Handling Patterns ===\n")
-
+def main() -> None:
+    print("=== AxonPush error handling ===\n")
     demo_auth_error()
 
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as client:
+    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, environment=ENVIRONMENT) as client:
         demo_not_found(client)
         demo_validation_error(client)
 
-    demo_rate_limit()
-    demo_context_manager()
+    demo_retry_classification()
     demo_catch_all()
     print("Done.")
 

@@ -12,9 +12,7 @@ pytestmark = pytest.mark.e2e
 
 class TestAsyncEvents:
     async def test_publish_event(self, async_client, backend):
-        ch = await async_client.channels.create(
-            f"async-ch-{uuid.uuid4().hex[:8]}", backend.app_id
-        )
+        ch = await async_client.channels.create(f"async-ch-{uuid.uuid4().hex[:8]}", backend.app_id)
 
         event = await async_client.events.publish(
             "async_action",
@@ -33,13 +31,9 @@ class TestAsyncEvents:
             pass
 
     async def test_list_events(self, async_client, backend):
-        ch = await async_client.channels.create(
-            f"async-ch-{uuid.uuid4().hex[:8]}", backend.app_id
-        )
+        ch = await async_client.channels.create(f"async-ch-{uuid.uuid4().hex[:8]}", backend.app_id)
 
-        await async_client.events.publish(
-            "async_list_1", {"i": 1}, channel_id=ch.id
-        )
+        await async_client.events.publish("async_list_1", {"i": 1}, channel_id=ch.id)
 
         events = await async_client.events.list(ch.id)
         assert isinstance(events, list)

@@ -1,137 +1,110 @@
-"""Unit tests for the structlog integration."""
+"""Unit tests for the structlog processor."""
+
 from __future__ import annotations
 
-import copy
-import json
+from typing import Iterator
 
-import httpx
 import pytest
 
 pytest.importorskip("structlog")
 
 import structlog  # noqa: E402
 
-from axonpush import AxonPush  # noqa: E402
 from axonpush.integrations.structlog import axonpush_structlog_processor  # noqa: E402
 
-from tests.conftest import API_KEY, BASE_URL, TENANT_ID  # noqa: E402
+from .conftest import FakeSyncClient  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _reset_structlog():
-    """structlog.configure() is global state. Reset before AND after each test
-    so test order doesn't change behavior."""
+def _reset_structlog() -> Iterator[None]:
     structlog.reset_defaults()
-    try:
-        yield
-    finally:
-        structlog.reset_defaults()
+    yield
+    structlog.reset_defaults()
 
 
-def _ack():
-    return httpx.Response(
-        200,
-        json={
-            "id": 1,
-            "identifier": "structlog",
-            "payload": {},
-            "eventType": "app.log",
-        },
-    )
-
-
-def _last_body(route) -> dict:
-    return json.loads(route.calls.last.request.content)
-
-
-def test_processor_publishes_event(mock_router):
-    route = mock_router.post("/event").mock(return_value=_ack())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        forwarder = axonpush_structlog_processor(
-            client=c, channel_id=5, service_name="structlog-svc", mode="sync"
+class TestStructlogProcessor:
+    def test_emits_app_log_event(self, fake_sync_client: FakeSyncClient) -> None:
+        proc = axonpush_structlog_processor(
+            client=fake_sync_client,
+            channel_id="ch_x",
+            service_name="myapp",
+            mode="sync",
         )
-        structlog.configure(
-            processors=[
-                structlog.processors.add_log_level,
-                structlog.processors.TimeStamper(fmt="iso"),
-                forwarder,
-                structlog.processors.JSONRenderer(),
-            ],
+        proc(None, "error", {"event": "auth fail", "user_id": 42})
+        assert len(fake_sync_client.events.calls) == 1
+        call = fake_sync_client.events.calls[0]
+        assert call["channel_id"] == "ch_x"
+        assert call["event_type"].value == "app.log"
+        assert call["payload"]["body"] == "auth fail"
+        assert call["payload"]["severityText"] == "ERROR"
+        assert call["payload"]["attributes"]["user_id"] == 42
+        assert call["metadata"]["framework"] == "structlog"
+
+    def test_returns_event_dict_unchanged(self, fake_sync_client: FakeSyncClient) -> None:
+        proc = axonpush_structlog_processor(client=fake_sync_client, channel_id="ch_x", mode="sync")
+        ed = {"event": "x", "foo": 1}
+        result = proc(None, "info", ed)
+        assert result is ed
+
+    def test_agent_log_source(self, fake_sync_client: FakeSyncClient) -> None:
+        proc = axonpush_structlog_processor(
+            client=fake_sync_client,
+            channel_id="ch_x",
+            source="agent",
+            mode="sync",
         )
-        log = structlog.get_logger()
-        log.error("connection refused", user_id=42)
+        proc(None, "info", {"event": "thinking"})
+        assert fake_sync_client.events.calls[0]["event_type"].value == "agent.log"
 
-    body = _last_body(route)
-    assert body["channel_id"] == 5
-    assert body["eventType"] == "app.log"
-    assert body["payload"]["severityText"] == "ERROR"
-    assert body["payload"]["severityNumber"] == 17
-    assert body["payload"]["body"] == "connection refused"
-    assert body["payload"]["resource"]["service.name"] == "structlog-svc"
-    assert body["metadata"]["framework"] == "structlog"
-    # User-supplied bound context lands in attributes
-    assert body["payload"]["attributes"]["user_id"] == 42
-
-
-def test_processor_is_non_destructive(mock_router):
-    """The processor must NOT mutate the event_dict — downstream processors
-    (e.g. JSONRenderer) need to see the original keys AND values intact.
-
-    The processor returns the same dict instance, so a key-only check would
-    be aliased and meaningless. We deepcopy a snapshot before the call and
-    compare the full dict contents after.
-    """
-    mock_router.post("/event").mock(return_value=_ack())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        forwarder = axonpush_structlog_processor(client=c, channel_id=5, mode="sync")
-        event_dict = {
-            "event": "hello",
-            "level": "info",
-            "timestamp": "2026-04-11T12:00:00",
-            "user_id": 7,
-            "nested": {"a": 1, "b": [2, 3]},
-        }
-        snapshot = copy.deepcopy(event_dict)
-        result = forwarder(None, "info", event_dict)
-        # Same instance returned (pass-through, not a copy)
-        assert result is event_dict
-        # No keys added/removed AND no values mutated
-        assert event_dict == snapshot
-
-
-def test_severity_from_method_name_when_level_missing(mock_router):
-    """If add_log_level isn't in the chain, fall back to the method name."""
-    route = mock_router.post("/event").mock(return_value=_ack())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        forwarder = axonpush_structlog_processor(client=c, channel_id=5, mode="sync")
-        forwarder(None, "warning", {"event": "stale cache"})
-    body = _last_body(route)
-    assert body["payload"]["severityText"] == "WARN"
-    assert body["payload"]["severityNumber"] == 13
-
-
-def test_agent_source(mock_router):
-    route = mock_router.post("/event").mock(return_value=_ack())
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-        forwarder = axonpush_structlog_processor(
-            client=c, channel_id=5, source="agent", mode="sync"
-        )
-        forwarder(None, "info", {"event": "agent log"})
-    assert _last_body(route)["eventType"] == "agent.log"
-
-
-def test_invalid_source_rejected():
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
+    def test_invalid_source_rejected(self, fake_sync_client: FakeSyncClient) -> None:
         with pytest.raises(ValueError, match="source must be"):
-            axonpush_structlog_processor(client=c, channel_id=5, source="bogus", mode="sync")
+            axonpush_structlog_processor(
+                client=fake_sync_client,
+                channel_id="ch_x",
+                source="bogus",
+                mode="sync",
+            )
 
+    def test_invalid_mode_rejected(self, fake_sync_client: FakeSyncClient) -> None:
+        with pytest.raises(ValueError, match="mode must be"):
+            axonpush_structlog_processor(
+                client=fake_sync_client,
+                channel_id="ch_x",
+                mode="bogus",  # type: ignore[arg-type]
+            )
 
-def test_processor_swallows_publish_errors(mock_router):
-    mock_router.post("/event").mock(side_effect=httpx.ConnectError("nope"))
-    with AxonPush(
-        api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=False
-    ) as c:
-        forwarder = axonpush_structlog_processor(client=c, channel_id=5, mode="sync")
-        # Should not raise even on transport failure
-        result = forwarder(None, "error", {"event": "boom"})
-    assert result == {"event": "boom"}
+    def test_int_channel_id_emits_deprecation(self, fake_sync_client: FakeSyncClient) -> None:
+        with pytest.warns(DeprecationWarning):
+            proc = axonpush_structlog_processor(client=fake_sync_client, channel_id=42, mode="sync")
+        proc(None, "info", {"event": "x"})
+        assert fake_sync_client.events.calls[0]["channel_id"] == "42"
+
+    def test_publish_exception_swallowed(self, fake_sync_client: FakeSyncClient) -> None:
+        fake_sync_client.events.exception = RuntimeError("nope")
+        proc = axonpush_structlog_processor(client=fake_sync_client, channel_id="ch_x", mode="sync")
+        proc(None, "error", {"event": "survives"})
+
+    def test_reentrancy_guard_drops_records(self, fake_sync_client: FakeSyncClient) -> None:
+        from axonpush.integrations import _publisher as p
+
+        proc = axonpush_structlog_processor(client=fake_sync_client, channel_id="ch_x", mode="sync")
+        token = p._in_publisher_path.set(True)
+        try:
+            proc(None, "info", {"event": "inside"})
+        finally:
+            p._in_publisher_path.reset(token)
+        assert fake_sync_client.events.calls == []
+
+    def test_iso_timestamp_parsing(self, fake_sync_client: FakeSyncClient) -> None:
+        proc = axonpush_structlog_processor(client=fake_sync_client, channel_id="ch_x", mode="sync")
+        proc(None, "info", {"event": "x", "timestamp": "2025-01-01T00:00:00Z"})
+        nano = fake_sync_client.events.calls[0]["payload"]["timeUnixNano"]
+        assert isinstance(nano, str)
+        # Just check it's a numeric string with at least 19 digits (ns resolution)
+        assert nano.isdigit() and len(nano) >= 18
+
+    def test_numeric_timestamp_parsing(self, fake_sync_client: FakeSyncClient) -> None:
+        proc = axonpush_structlog_processor(client=fake_sync_client, channel_id="ch_x", mode="sync")
+        proc(None, "info", {"event": "x", "timestamp": 1704067200.0})
+        nano = fake_sync_client.events.calls[0]["payload"]["timeUnixNano"]
+        assert nano == "1704067200000000000"

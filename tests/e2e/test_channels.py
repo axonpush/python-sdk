@@ -2,12 +2,13 @@ import uuid
 
 import pytest
 
-from axonpush.models.channels import Channel
+from axonpush.exceptions import NotFoundError
+from axonpush.models import Channel
 
 pytestmark = pytest.mark.e2e
 
 
-class TestChannelsResource:
+class TestChannels:
     def test_create_channel(self, client, backend):
         name = f"test-ch-{uuid.uuid4().hex[:8]}"
         ch = client.channels.create(name, backend.app_id)
@@ -25,6 +26,5 @@ class TestChannelsResource:
         name = f"test-ch-{uuid.uuid4().hex[:8]}"
         ch = client.channels.create(name, backend.app_id)
         client.channels.delete(ch.id)
-        from axonpush.exceptions import NotFoundError
         with pytest.raises((NotFoundError, Exception)):
             client.channels.get(ch.id)

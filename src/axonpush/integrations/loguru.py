@@ -1,10 +1,14 @@
 """Loguru integration for AxonPush.
 
-Loguru is a popular alternative to stdlib ``logging`` that's loved for its
-ergonomic API. This integration provides a sink function that can be added
-to a Loguru logger to forward records to AxonPush.
+Loguru is a popular alternative to stdlib ``logging`` that's loved for
+its ergonomic API. This integration provides a sink object that can be
+added to a Loguru logger to forward records to AxonPush.
 
-Requires: ``pip install axonpush[loguru]``
+Tested against ``loguru>=0.7,<1.0``.
+
+Install::
+
+    pip install axonpush[loguru]
 
 Usage::
 
@@ -12,24 +16,25 @@ Usage::
     from axonpush import AxonPush
     from axonpush.integrations.loguru import create_axonpush_loguru_sink
 
-    client = AxonPush(api_key="ak_...", tenant_id="1")
+    client = AxonPush(api_key="ak_...", tenant_id="org_...")
     sink = create_axonpush_loguru_sink(
         client=client,
-        channel_id=1,
+        channel_id="ch_...",
         service_name="my-api",
     )
     logger.add(sink, serialize=True)
 
     logger.error("connection refused", user_id=42)
 """
+
 from __future__ import annotations
 
 import json
 import logging as _stdlib_logging
-from typing import Any, Dict, Literal, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional
 
 try:
-    import loguru  # noqa: F401 — verify the package is installed
+    import loguru  # noqa: F401
 except ImportError:
     raise ImportError(
         "Loguru integration requires the 'loguru' extra. "
@@ -47,9 +52,15 @@ from axonpush.integrations._publisher import (
     DEFAULT_SHUTDOWN_TIMEOUT_S,
     detect_serverless,
     flush_after_invocation,
+    in_publisher_path,
 )
-from axonpush.integrations._utils import build_resource, fire_and_forget
-from axonpush.models.events import EventType
+from axonpush.integrations._utils import (
+    build_resource,
+    coerce_channel_id,
+    fire_and_forget,
+    is_async_client,
+)
+from axonpush.models import EventType
 
 if TYPE_CHECKING:
     from axonpush.client import AsyncAxonPush, AxonPush
@@ -60,19 +71,13 @@ _internal_logger = _stdlib_logging.getLogger("axonpush")
 
 
 class _AxonPushLoguruSink:
-    """Callable sink that forwards Loguru records to AxonPush.
-
-    Instances are drop-in replacements for a plain sink function — the
-    object has a ``__call__`` method so ``logger.add(sink, serialize=True)``
-    keeps working. Adds ``flush(timeout=)`` and ``close()`` methods for
-    graceful shutdown / Lambda-invocation flushing.
-    """
+    """Callable sink that forwards Loguru records to AxonPush."""
 
     def __init__(
         self,
         *,
         client: "AxonPush | AsyncAxonPush",
-        channel_id: int,
+        channel_id: int | str,
         source: str = "app",
         service_name: Optional[str] = None,
         service_version: Optional[str] = None,
@@ -86,25 +91,23 @@ class _AxonPushLoguruSink:
             raise ValueError(f"source must be 'agent' or 'app', got {source!r}")
         resolved_mode = mode or "background"
         if resolved_mode not in ("background", "sync"):
-            raise ValueError(
-                f"mode must be 'background' or 'sync', got {resolved_mode!r}"
-            )
+            raise ValueError(f"mode must be 'background' or 'sync', got {resolved_mode!r}")
 
         self._client = client
-        self._channel_id = channel_id
+        self._channel_id = coerce_channel_id(channel_id)
         self._agent_id = agent_id
-        self._event_type = (
-            EventType.APP_LOG if source == "app" else EventType.AGENT_LOG
-        )
-
+        self._event_type = EventType.APP_LOG if source == "app" else EventType.AGENT_LOG
         self._resource = build_resource(service_name, service_version, environment)
 
         if resolved_mode == "background":
-            self._publisher: Optional[BackgroundPublisher] = BackgroundPublisher(
-                client,
-                queue_size=queue_size,
-                shutdown_timeout=shutdown_timeout,
-            )
+            if is_async_client(client):
+                self._publisher: Optional[BackgroundPublisher] = None
+            else:
+                self._publisher = BackgroundPublisher(
+                    client,  # type: ignore[arg-type]
+                    queue_size=queue_size,
+                    shutdown_timeout=shutdown_timeout,
+                )
         else:
             self._publisher = None
 
@@ -119,17 +122,17 @@ class _AxonPushLoguruSink:
             )
 
     def flush(self, timeout: Optional[float] = None) -> None:
-        """Block until queued records are published, or until timeout."""
         if self._publisher is not None:
             self._publisher.flush(timeout)
 
     def close(self) -> None:
-        """Stop the background worker and release resources."""
         if self._publisher is not None:
             self._publisher.close()
             self._publisher = None
 
     def __call__(self, message: Any) -> None:
+        if in_publisher_path():
+            return
         try:
             publish_kwargs = self._build_publish_kwargs(message)
         except Exception as exc:
@@ -228,7 +231,7 @@ class _AxonPushLoguruSink:
 def create_axonpush_loguru_sink(
     *,
     client: "AxonPush | AsyncAxonPush",
-    channel_id: int,
+    channel_id: int | str,
     source: str = "app",
     service_name: Optional[str] = None,
     service_version: Optional[str] = None,
@@ -241,14 +244,8 @@ def create_axonpush_loguru_sink(
     """Build a Loguru sink that forwards each record to AxonPush.
 
     Pass the returned object to ``logger.add(sink, serialize=True)``.
-    The ``serialize=True`` flag is **required** — it tells Loguru to pass
+    The ``serialize=True`` flag is required — it tells Loguru to pass
     a JSON string of the record to the sink, which this integration parses.
-
-    The returned object is a callable instance; it exposes ``flush()`` and
-    ``close()`` methods for graceful shutdown / per-invocation flushing
-    (e.g. in AWS Lambda). Publishing is non-blocking by default — records
-    are enqueued and drained by a background worker thread. Pass
-    ``mode="sync"`` to fall back to synchronous blocking publishes.
     """
     return _AxonPushLoguruSink(
         client=client,

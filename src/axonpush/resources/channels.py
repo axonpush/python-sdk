@@ -1,119 +1,90 @@
+"""Channels resource — CRUD over channels within an app."""
+
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Union
+from typing import TYPE_CHECKING
 
-from axonpush._http import AsyncTransport, SyncTransport, _is_fail_open
-from axonpush.models.channels import Channel, CreateChannelParams
-from axonpush.models.events import EventType
+from axonpush._internal.api.api.channels import (
+    channel_controller_create_channel as _create_op,
+    channel_controller_delete_channel as _delete_op,
+    channel_controller_get_channel as _get_op,
+    channel_controller_update_channel as _update_op,
+)
+from axonpush._internal.api.models import CreateChannelDto, OkResponseDto
+from axonpush.models import Channel
+
+if TYPE_CHECKING:
+    from axonpush.resources._base import AsyncClientProtocol, SyncClientProtocol
 
 
-class ChannelsResource:
-    """Synchronous resource for channel CRUD and SSE subscriptions."""
+def _build_create_dto(*, name: str, app_id: str) -> CreateChannelDto:
+    return CreateChannelDto(name=name, app_id=app_id)
 
-    def __init__(self, transport: SyncTransport) -> None:
-        self._transport = transport
 
-    def create(self, name: str, app_id: int) -> Optional[Channel]:
-        """Create a new channel (POST /channel)."""
-        body = CreateChannelParams(name=name, app_id=app_id)
-        data = self._transport.request(
-            "POST", "/channel", json=body.model_dump(by_alias=True, exclude_none=True)
-        )
-        if _is_fail_open(data):
-            return None
-        return Channel.model_validate(data)
+class Channels:
+    """Synchronous channel CRUD."""
 
-    def get(self, channel_id: int) -> Optional[Channel]:
-        """Get a channel by ID (GET /channel/:id)."""
-        data = self._transport.request("GET", f"/channel/{channel_id}")
-        if _is_fail_open(data):
-            return None
-        return Channel.model_validate(data)
+    def __init__(self, client: SyncClientProtocol) -> None:
+        self._client = client
 
-    def update(self, channel_id: int, **fields: Any) -> Optional[Channel]:
-        """Update a channel (PUT /channel/:id)."""
-        data = self._transport.request("PUT", f"/channel/{channel_id}", json=fields)
-        if _is_fail_open(data):
-            return None
-        return Channel.model_validate(data)
+    def get(self, channel_id: str) -> Channel | None:
+        """Fetch a single channel by UUID.
 
-    def delete(self, channel_id: int) -> None:
-        """Delete a channel (DELETE /channel/:id)."""
-        self._transport.request("DELETE", f"/channel/{channel_id}")
+        Args:
+            channel_id: UUID of the channel.
 
-    def subscribe_sse(
-        self,
-        channel_id: int,
-        *,
-        agent_id: Optional[str] = None,
-        event_type: Optional[Union[EventType, str]] = None,
-        trace_id: Optional[str] = None,
-    ) -> Any:
-        """Subscribe to channel events via SSE (GET /channel/:channelId/subscribe).
-
-        Returns a context manager yielding an httpx_sse.EventSource.
-        Use ``realtime.sse.SSESubscription`` for a higher-level iterator.
+        Returns:
+            The :class:`Channel`, or ``None`` on fail-open.
         """
-        params = _build_filter_params(agent_id, event_type, trace_id)
-        return self._transport.stream_sse(f"/channel/{channel_id}/subscribe", params=params)
+        return self._client._invoke(_get_op, id=channel_id)
 
-    def subscribe_event_sse(
-        self,
-        channel_id: int,
-        event_identifier: str,
-        *,
-        agent_id: Optional[str] = None,
-        event_type: Optional[Union[EventType, str]] = None,
-        trace_id: Optional[str] = None,
-    ) -> Any:
-        """Subscribe to events by identifier via SSE."""
-        params = _build_filter_params(agent_id, event_type, trace_id)
-        return self._transport.stream_sse(
-            f"/channel/{channel_id}/{event_identifier}/subscribe", params=params
+    def create(self, name: str, app_id: str) -> Channel | None:
+        """Create a channel inside an app.
+
+        Args:
+            name: Human-readable channel name.
+            app_id: UUID of the parent app.
+
+        Returns:
+            The created :class:`Channel`, or ``None`` on fail-open.
+        """
+        return self._client._invoke(
+            _create_op, body=_build_create_dto(name=name, app_id=app_id)
         )
 
+    def update(self, channel_id: str) -> OkResponseDto | None:
+        """Touch / re-validate a channel.
 
-class AsyncChannelsResource:
-    """Asynchronous resource for channel CRUD."""
+        The backend currently exposes ``PUT /channel/:id`` without a body.
+        See ``channel_controller_update_channel`` in the generated layer.
+        """
+        return self._client._invoke(_update_op, id=channel_id)
 
-    def __init__(self, transport: AsyncTransport) -> None:
-        self._transport = transport
+    def delete(self, channel_id: str) -> OkResponseDto | None:
+        """Soft-delete a channel."""
+        return self._client._invoke(_delete_op, id=channel_id)
 
-    async def create(self, name: str, app_id: int) -> Optional[Channel]:
-        body = CreateChannelParams(name=name, app_id=app_id)
-        data = await self._transport.request(
-            "POST", "/channel", json=body.model_dump(by_alias=True, exclude_none=True)
+
+class AsyncChannels:
+    """Async sibling of :class:`Channels`."""
+
+    def __init__(self, client: AsyncClientProtocol) -> None:
+        self._client = client
+
+    async def get(self, channel_id: str) -> Channel | None:
+        """See :meth:`Channels.get`."""
+        return await self._client._invoke(_get_op, id=channel_id)
+
+    async def create(self, name: str, app_id: str) -> Channel | None:
+        """See :meth:`Channels.create`."""
+        return await self._client._invoke(
+            _create_op, body=_build_create_dto(name=name, app_id=app_id)
         )
-        if _is_fail_open(data):
-            return None
-        return Channel.model_validate(data)
 
-    async def get(self, channel_id: int) -> Optional[Channel]:
-        data = await self._transport.request("GET", f"/channel/{channel_id}")
-        if _is_fail_open(data):
-            return None
-        return Channel.model_validate(data)
+    async def update(self, channel_id: str) -> OkResponseDto | None:
+        """See :meth:`Channels.update`."""
+        return await self._client._invoke(_update_op, id=channel_id)
 
-    async def update(self, channel_id: int, **fields: Any) -> Optional[Channel]:
-        data = await self._transport.request("PUT", f"/channel/{channel_id}", json=fields)
-        if _is_fail_open(data):
-            return None
-        return Channel.model_validate(data)
-
-    async def delete(self, channel_id: int) -> None:
-        await self._transport.request("DELETE", f"/channel/{channel_id}")
-
-
-def _build_filter_params(
-    agent_id: Optional[str],
-    event_type: Optional[Union[EventType, str]],
-    trace_id: Optional[str],
-) -> Dict[str, str]:
-    params: Dict[str, str] = {}
-    if agent_id is not None:
-        params["agentId"] = agent_id
-    if event_type is not None:
-        params["eventType"] = str(event_type.value if isinstance(event_type, EventType) else event_type)
-    if trace_id is not None:
-        params["traceId"] = trace_id
-    return params
+    async def delete(self, channel_id: str) -> OkResponseDto | None:
+        """See :meth:`Channels.delete`."""
+        return await self._client._invoke(_delete_op, id=channel_id)

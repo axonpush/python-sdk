@@ -1,10 +1,22 @@
 """OpenTelemetry SpanExporter for AxonPush.
 
-Implements the OTel ``SpanExporter`` interface so any Python service already
-instrumented with the OpenTelemetry SDK can ship spans to AxonPush by adding
-this exporter to its tracer provider.
+Implements the OTel ``SpanExporter`` interface so any service already
+instrumented with the OpenTelemetry SDK can ship spans to AxonPush by
+plugging this exporter into its tracer provider.
 
-Requires: ``pip install axonpush[otel]``
+The exporter ingests through the regular AxonPush events API
+(``client.events.publish`` with ``event_type=EventType.APP_SPAN``)
+rather than the dedicated OTLP ``/v1/traces`` endpoint. The dedicated
+endpoint exists on the backend (see :file:`src/otlp/otlp.controller.ts`)
+and accepts both protobuf and JSON, but the per-span ``app.span`` events
+flow gives uniform fan-out / channel routing for free. Future versions
+may add a direct OTLP transport.
+
+Tested against ``opentelemetry-sdk>=1.20,<2``.
+
+Install::
+
+    pip install axonpush[otel]
 
 Usage::
 
@@ -15,36 +27,31 @@ Usage::
     from axonpush import AxonPush
     from axonpush.integrations.otel import AxonPushSpanExporter
 
-    client = AxonPush(api_key="ak_...", tenant_id="1")
+    client = AxonPush(api_key="ak_...", tenant_id="org_...")
     provider = TracerProvider()
     provider.add_span_processor(
         BatchSpanProcessor(
             AxonPushSpanExporter(
                 client=client,
-                channel_id=1,
+                channel_id="ch_...",
                 service_name="my-api",
             )
         )
     )
     trace.set_tracer_provider(provider)
-
-    tracer = trace.get_tracer(__name__)
-    with tracer.start_as_current_span("POST /chat") as span:
-        span.set_attribute("http.method", "POST")
-        ...
 """
+
 from __future__ import annotations
 
 import logging as _stdlib_logging
-from typing import Any, Dict, Literal, Optional, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Sequence
 
 try:
     from opentelemetry.sdk.trace import ReadableSpan
     from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 except ImportError:
     raise ImportError(
-        "OTel exporter requires the 'otel' extra. "
-        "Install it with: pip install axonpush[otel]"
+        "OTel exporter requires the 'otel' extra. Install it with: pip install axonpush[otel]"
     ) from None
 
 from axonpush._tracing import get_or_create_trace
@@ -56,8 +63,13 @@ from axonpush.integrations._publisher import (
     detect_serverless,
     flush_after_invocation,
 )
-from axonpush.integrations._utils import build_resource, fire_and_forget
-from axonpush.models.events import EventType
+from axonpush.integrations._utils import (
+    build_resource,
+    coerce_channel_id,
+    fire_and_forget,
+    is_async_client,
+)
+from axonpush.models import EventType
 
 if TYPE_CHECKING:
     from axonpush.client import AsyncAxonPush, AxonPush
@@ -68,13 +80,13 @@ _internal_logger = _stdlib_logging.getLogger("axonpush")
 
 
 class AxonPushSpanExporter(SpanExporter):
-    """A ``SpanExporter`` that ships ReadableSpans to AxonPush as ``app.span`` events."""
+    """A ``SpanExporter`` that ships :class:`ReadableSpan` to AxonPush as ``app.span`` events."""
 
     def __init__(
         self,
         *,
         client: "AxonPush | AsyncAxonPush",
-        channel_id: int,
+        channel_id: int | str,
         service_name: Optional[str] = None,
         service_version: Optional[str] = None,
         environment: Optional[str] = None,
@@ -84,23 +96,24 @@ class AxonPushSpanExporter(SpanExporter):
     ) -> None:
         resolved_mode = mode or "background"
         if resolved_mode not in ("background", "sync"):
-            raise ValueError(
-                f"mode must be 'background' or 'sync', got {resolved_mode!r}"
-            )
+            raise ValueError(f"mode must be 'background' or 'sync', got {resolved_mode!r}")
 
         self._client = client
-        self._channel_id = channel_id
+        self._channel_id = coerce_channel_id(channel_id)
         self._trace = get_or_create_trace()
         self._environment = environment
 
         self._resource_override = build_resource(service_name, service_version, environment) or {}
 
         if resolved_mode == "background":
-            self._publisher: Optional[BackgroundPublisher] = BackgroundPublisher(
-                client,
-                queue_size=queue_size,
-                shutdown_timeout=shutdown_timeout,
-            )
+            if is_async_client(client):
+                self._publisher: Optional[BackgroundPublisher] = None
+            else:
+                self._publisher = BackgroundPublisher(
+                    client,  # type: ignore[arg-type]
+                    queue_size=queue_size,
+                    shutdown_timeout=shutdown_timeout,
+                )
         else:
             self._publisher = None
 
@@ -124,7 +137,7 @@ class AxonPushSpanExporter(SpanExporter):
             return SpanExportResult.FAILURE
 
     def flush(self, timeout: Optional[float] = None) -> None:
-        """Block until queued spans are published, or until timeout."""
+        """Block until queued spans are published, or until ``timeout``."""
         if self._publisher is not None:
             self._publisher.flush(timeout)
 
@@ -147,24 +160,21 @@ class AxonPushSpanExporter(SpanExporter):
         if parent is not None:
             parent_span_id = format(parent.span_id, "016x")
 
-        # status — extract code as integer (matches OTel proto: 0=UNSET 1=OK 2=ERROR)
+        # status code matches OTel proto: 0=UNSET 1=OK 2=ERROR
         status_code = int(span.status.status_code.value) if span.status else 0
         status_message = span.status.description or "" if span.status else ""
 
-        # attributes — convert to plain dict
         attributes: Dict[str, Any] = {}
         if span.attributes:
             for key, value in span.attributes.items():
                 attributes[key] = value
 
-        # resource attributes — combine span resource with exporter override
         resource: Dict[str, Any] = {}
         if span.resource and span.resource.attributes:
             for key, value in span.resource.attributes.items():
                 resource[key] = value
         resource.update(self._resource_override)
 
-        # events
         events_out = []
         for ev in span.events or []:
             ev_attrs: Dict[str, Any] = {}
@@ -179,7 +189,6 @@ class AxonPushSpanExporter(SpanExporter):
                 }
             )
 
-        # links
         links_out = []
         for link in span.links or []:
             link_attrs: Dict[str, Any] = {}
@@ -194,7 +203,6 @@ class AxonPushSpanExporter(SpanExporter):
                 }
             )
 
-        # span.kind is an enum — extract the integer value
         kind_value = int(span.kind.value) if span.kind else 0
 
         payload: Dict[str, Any] = {
@@ -232,6 +240,8 @@ class AxonPushSpanExporter(SpanExporter):
             "event_type": EventType.APP_SPAN,
             "metadata": {"framework": "opentelemetry"},
         }
+        if parent_span_id:
+            publish_kwargs["parent_event_id"] = parent_span_id
         if self._environment is not None:
             publish_kwargs["environment"] = self._environment
 
@@ -243,6 +253,4 @@ class AxonPushSpanExporter(SpanExporter):
             result = self._client.events.publish(**publish_kwargs)
             fire_and_forget(result)
         except Exception as exc:
-            _internal_logger.warning(
-                "AxonPush OTel exporter publish failed: %s", exc
-            )
+            _internal_logger.warning("AxonPush OTel exporter publish failed: %s", exc)

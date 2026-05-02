@@ -14,8 +14,8 @@ keywords = [
     "tracing",
     "observability",
     "webhooks",
-    "sse",
-    "websocket",
+    "mqtt",
+    "iot",
     "langchain",
     "langgraph",
     "deepagents",
@@ -46,7 +46,9 @@ classifiers = [
 dependencies = [
     "httpx>=0.25.0,<1.0",
     "pydantic>=2.0,<3.0",
-    "httpx-sse>=0.4.0,<1.0",
+    "paho-mqtt>=2.0,<3.0",
+    "aiomqtt>=2.0,<3.0",
+    "pydantic-settings>=2.0,<3.0",
 ]
 
 [project.urls]
@@ -56,7 +58,6 @@ Issues = "https://github.com/axonpush/python-sdk/issues"
 Changelog = "https://github.com/axonpush/python-sdk/releases"
 
 [project.optional-dependencies]
-websocket = ["python-socketio[asyncio_client]>=5.10,<6.0"]
 langchain = ["langchain-core>=0.1.0"]
 openai-agents = ["openai-agents>=0.1.0"]
 anthropic = ["anthropic>=0.30.0"]
@@ -70,7 +71,6 @@ otel = [
     "opentelemetry-sdk>=1.20.0",
 ]
 all = [
-    "axonpush[websocket]",
     "axonpush[langchain]",
     "axonpush[openai-agents]",
     "axonpush[anthropic]",
@@ -106,10 +106,64 @@ python_version = "3.10"
 strict = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = [
+    "agents",
+    "agents.*",
+    "anthropic",
+    "anthropic.*",
+    "crewai",
+    "crewai.*",
+    "deepagents",
+    "deepagents.*",
+    "langchain_core",
+    "langchain_core.*",
+    "loguru",
+    "loguru.*",
+    "opentelemetry",
+    "opentelemetry.*",
+    "redis",
+    "redis.*",
+    "rq",
+    "rq.*",
+    "sentry_sdk",
+    "sentry_sdk.*",
+    "structlog",
+    "structlog.*",
+]
+ignore_missing_imports = true
+
+# Integrations subclass third-party callback / hook classes whose
+# stubs we don't control. Allow ``class Foo(ThirdPartyAny): ...`` here.
+[[tool.mypy.overrides]]
+module = [
+    "axonpush.integrations.anthropic",
+    "axonpush.integrations.crewai",
+    "axonpush.integrations.deepagents",
+    "axonpush.integrations.langchain",
+    "axonpush.integrations.openai_agents",
+    "axonpush.integrations.otel",
+]
+disallow_subclassing_any = false
+
+# Resource modules dispatch through the facade's ``_invoke`` chokepoint,
+# which is typed ``Any`` in the Protocol (op arg is a duck-typed module).
+# Each method signature declares the precise return; allow the bare-Any
+# return inside the function body so we don't have to ``cast`` 60+ sites.
+[[tool.mypy.overrides]]
+module = ["axonpush.resources.*"]
+disable_error_code = ["no-any-return"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-m 'not e2e'"
 markers = [
     "e2e: end-to-end tests requiring a live easy-push backend (opt in with `pytest -m e2e`)",
+]
+
+[dependency-groups]
+dev = [
+    "openapi-python-client>=0.21,<1.0",
+    "types-python-dateutil>=2.9.0.20260408",
 ]

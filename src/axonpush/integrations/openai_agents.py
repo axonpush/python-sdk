@@ -1,16 +1,27 @@
 """OpenAI Agents SDK integration for AxonPush.
 
-Requires: ``pip install axonpush[openai-agents]``
+The ``openai-agents`` package exposes a :class:`RunHooks` lifecycle hook
+class with five async methods: ``on_agent_start``, ``on_agent_end``,
+``on_tool_start``, ``on_tool_end``, ``on_handoff``. The signatures have
+been stable since 0.1.x and rely only on attribute access on
+``Agent`` / ``Tool`` (``agent.name``, ``tool.name``).
+
+Tested against ``openai-agents>=0.1.0,<2.0``.
+
+Install::
+
+    pip install axonpush[openai-agents]
 
 Usage::
 
     from axonpush import AsyncAxonPush
     from axonpush.integrations.openai_agents import AxonPushRunHooks
 
-    client = AsyncAxonPush(api_key="ak_...", tenant_id="1")
-    hooks = AxonPushRunHooks(client, channel_id=1)
+    client = AsyncAxonPush(api_key="ak_...", tenant_id="org_...")
+    hooks = AxonPushRunHooks(client, channel_id="ch_...")
     result = await Runner.run(agent, input="...", hooks=hooks)
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,28 +41,24 @@ from axonpush.integrations._publisher import (
     DEFAULT_QUEUE_SIZE,
     RqPublisher,
 )
-from axonpush.models.events import EventType
-
-logger = logging.getLogger("axonpush")
+from axonpush.integrations._utils import coerce_channel_id
+from axonpush.models import EventType
 
 if TYPE_CHECKING:
     from axonpush.client import AsyncAxonPush
+
+logger = logging.getLogger("axonpush")
 
 _PublisherT = Union[AsyncBackgroundPublisher, RqPublisher, None]
 
 
 class AxonPushRunHooks(RunHooks[Any]):
-    """OpenAI Agents SDK lifecycle hooks that publish events to AxonPush.
-
-    By default, events are published asynchronously via fire-and-forget tasks
-    (``mode="background"``).  Use ``mode="rq"`` for durable Redis-backed
-    queuing, or ``mode="sync"`` for inline awaited publishes.
-    """
+    """Lifecycle hooks that publish OpenAI Agents events to AxonPush."""
 
     def __init__(
         self,
         client: "AsyncAxonPush",
-        channel_id: int,
+        channel_id: int | str,
         *,
         agent_id: Optional[str] = None,
         trace_id: Optional[str] = None,
@@ -60,7 +67,7 @@ class AxonPushRunHooks(RunHooks[Any]):
         rq_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._client = client
-        self._channel_id = channel_id
+        self._channel_id = coerce_channel_id(channel_id)
         self._default_agent_id = agent_id
         self._trace = get_or_create_trace(trace_id)
 
@@ -72,9 +79,7 @@ class AxonPushRunHooks(RunHooks[Any]):
         else:
             self._publisher = None
 
-    async def on_agent_start(
-        self, context: RunContextWrapper[Any], agent: Agent[Any]
-    ) -> None:
+    async def on_agent_start(self, context: RunContextWrapper[Any], agent: Agent[Any]) -> None:
         agent_name = getattr(agent, "name", None) or self._default_agent_id or "openai-agent"
         self._publish(
             "agent.run.start",
@@ -160,14 +165,17 @@ class AxonPushRunHooks(RunHooks[Any]):
             if self._publisher is not None:
                 self._publisher.submit(publish_kwargs)
                 return
-
             logger.warning(
-                "AxonPush: openai-agents handler in sync mode — event %r not published "
-                "(use mode='background' or mode='rq' for async delivery).",
+                "AxonPush: openai-agents handler in sync mode — event %r dropped "
+                "(use mode='background' or 'rq').",
                 identifier,
             )
         except Exception:
-            logger.warning("AxonPush: failed to emit event %r, suppressing.", identifier, exc_info=True)
+            logger.warning(
+                "AxonPush: failed to emit event %r, suppressing.",
+                identifier,
+                exc_info=True,
+            )
 
     async def flush(self, timeout: Optional[float] = None) -> None:
         if isinstance(self._publisher, AsyncBackgroundPublisher):
@@ -177,7 +185,7 @@ class AxonPushRunHooks(RunHooks[Any]):
 
     async def close(self) -> None:
         if isinstance(self._publisher, AsyncBackgroundPublisher):
-            await self._publisher.close()
+            await self._publisher.aclose()
         elif self._publisher is not None:
             self._publisher.close()
         self._publisher = None

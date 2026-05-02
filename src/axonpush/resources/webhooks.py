@@ -1,108 +1,129 @@
+"""Webhooks resource — manage endpoints and inspect deliveries."""
+
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import TYPE_CHECKING
 
-from axonpush._http import AsyncTransport, SyncTransport, _is_fail_open
-from axonpush.models.webhooks import (
-    CreateWebhookEndpointParams,
+from axonpush._internal.api.api.webhooks import (
+    webhook_controller_create_endpoint as _create_op,
+    webhook_controller_delete_endpoint as _delete_op,
+    webhook_controller_get_deliveries as _deliveries_op,
+    webhook_controller_list_endpoints as _list_op,
+)
+from axonpush._internal.api.models import (
+    CreateWebhookEndpointDto,
+    MessageResponseDto,
+)
+from axonpush._internal.api.types import UNSET
+from axonpush.models import (
     WebhookDelivery,
     WebhookEndpoint,
+    WebhookEndpointCreateResponseDto,
 )
 
+if TYPE_CHECKING:
+    from axonpush.resources._base import AsyncClientProtocol, SyncClientProtocol
 
-class WebhooksResource:
-    """Synchronous resource for webhook endpoint management."""
 
-    def __init__(self, transport: SyncTransport) -> None:
-        self._transport = transport
+def _build_create_dto(
+    *,
+    url: str,
+    channel_id: str,
+    secret: str | None,
+    event_types: list[str] | None,
+    description: str | None,
+) -> CreateWebhookEndpointDto:
+    return CreateWebhookEndpointDto(
+        url=url,
+        channel_id=channel_id,
+        secret=secret if secret is not None else UNSET,
+        event_types=event_types if event_types is not None else UNSET,
+        description=description if description is not None else UNSET,
+    )
+
+
+class Webhooks:
+    """Synchronous webhook endpoint + delivery operations."""
+
+    def __init__(self, client: SyncClientProtocol) -> None:
+        self._client = client
 
     def create_endpoint(
         self,
-        url: str,
-        channel_id: int,
         *,
-        secret: Optional[str] = None,
-        event_types: Optional[List[str]] = None,
-        description: Optional[str] = None,
-    ) -> Optional[WebhookEndpoint]:
-        """Create a webhook endpoint (POST /webhooks/endpoints)."""
-        body = CreateWebhookEndpointParams(
+        url: str,
+        channel_id: str,
+        secret: str | None = None,
+        event_types: list[str] | None = None,
+        description: str | None = None,
+    ) -> WebhookEndpointCreateResponseDto | None:
+        """Register a webhook endpoint on a channel.
+
+        Args:
+            url: Target URL the backend will POST to.
+            channel_id: Source channel UUID.
+            secret: Optional signing secret. Server-generated if omitted.
+            event_types: Optional event-type filter (e.g. ``["agent.start"]``).
+            description: Free-form note.
+
+        Returns:
+            The created endpoint (response includes the raw secret once).
+        """
+        body = _build_create_dto(
             url=url,
             channel_id=channel_id,
             secret=secret,
             event_types=event_types,
             description=description,
         )
-        data = self._transport.request(
-            "POST",
-            "/webhooks/endpoints",
-            json=body.model_dump(by_alias=True, exclude_none=True),
-        )
-        if _is_fail_open(data):
-            return None
-        return WebhookEndpoint.model_validate(data)
+        return self._client._invoke(_create_op, body=body)
 
-    def list_endpoints(self, channel_id: int) -> List[WebhookEndpoint]:
-        """List webhook endpoints for a channel (GET /webhooks/endpoints/channel/:channelId)."""
-        data = self._transport.request("GET", f"/webhooks/endpoints/channel/{channel_id}")
-        if _is_fail_open(data):
-            return []
-        return [WebhookEndpoint.model_validate(e) for e in data]
+    def list_endpoints(self, channel_id: str) -> list[WebhookEndpoint] | None:
+        """List endpoints attached to a channel."""
+        return self._client._invoke(_list_op, channel_id=channel_id)
 
-    def delete_endpoint(self, endpoint_id: int) -> None:
-        """Deactivate a webhook endpoint (DELETE /webhooks/endpoints/:id)."""
-        self._transport.request("DELETE", f"/webhooks/endpoints/{endpoint_id}")
+    def delete_endpoint(self, endpoint_id: str) -> MessageResponseDto | None:
+        """Delete a webhook endpoint."""
+        return self._client._invoke(_delete_op, id=endpoint_id)
 
-    def get_deliveries(self, endpoint_id: int) -> List[WebhookDelivery]:
-        """Get delivery logs for an endpoint (GET /webhooks/deliveries/:endpointId)."""
-        data = self._transport.request("GET", f"/webhooks/deliveries/{endpoint_id}")
-        if _is_fail_open(data):
-            return []
-        return [WebhookDelivery.model_validate(d) for d in data]
+    def deliveries(self, endpoint_id: str) -> list[WebhookDelivery] | None:
+        """List deliveries for a webhook endpoint."""
+        return self._client._invoke(_deliveries_op, endpoint_id=endpoint_id)
 
 
-class AsyncWebhooksResource:
-    """Asynchronous resource for webhook endpoint management."""
+class AsyncWebhooks:
+    """Async sibling of :class:`Webhooks`."""
 
-    def __init__(self, transport: AsyncTransport) -> None:
-        self._transport = transport
+    def __init__(self, client: AsyncClientProtocol) -> None:
+        self._client = client
 
     async def create_endpoint(
         self,
-        url: str,
-        channel_id: int,
         *,
-        secret: Optional[str] = None,
-        event_types: Optional[List[str]] = None,
-        description: Optional[str] = None,
-    ) -> Optional[WebhookEndpoint]:
-        body = CreateWebhookEndpointParams(
+        url: str,
+        channel_id: str,
+        secret: str | None = None,
+        event_types: list[str] | None = None,
+        description: str | None = None,
+    ) -> WebhookEndpointCreateResponseDto | None:
+        """See :meth:`Webhooks.create_endpoint`."""
+        body = _build_create_dto(
             url=url,
             channel_id=channel_id,
             secret=secret,
             event_types=event_types,
             description=description,
         )
-        data = await self._transport.request(
-            "POST",
-            "/webhooks/endpoints",
-            json=body.model_dump(by_alias=True, exclude_none=True),
-        )
-        if _is_fail_open(data):
-            return None
-        return WebhookEndpoint.model_validate(data)
+        return await self._client._invoke(_create_op, body=body)
 
-    async def list_endpoints(self, channel_id: int) -> List[WebhookEndpoint]:
-        data = await self._transport.request("GET", f"/webhooks/endpoints/channel/{channel_id}")
-        if _is_fail_open(data):
-            return []
-        return [WebhookEndpoint.model_validate(e) for e in data]
+    async def list_endpoints(self, channel_id: str) -> list[WebhookEndpoint] | None:
+        """See :meth:`Webhooks.list_endpoints`."""
+        return await self._client._invoke(_list_op, channel_id=channel_id)
 
-    async def delete_endpoint(self, endpoint_id: int) -> None:
-        await self._transport.request("DELETE", f"/webhooks/endpoints/{endpoint_id}")
+    async def delete_endpoint(self, endpoint_id: str) -> MessageResponseDto | None:
+        """See :meth:`Webhooks.delete_endpoint`."""
+        return await self._client._invoke(_delete_op, id=endpoint_id)
 
-    async def get_deliveries(self, endpoint_id: int) -> List[WebhookDelivery]:
-        data = await self._transport.request("GET", f"/webhooks/deliveries/{endpoint_id}")
-        if _is_fail_open(data):
-            return []
-        return [WebhookDelivery.model_validate(d) for d in data]
+    async def deliveries(self, endpoint_id: str) -> list[WebhookDelivery] | None:
+        """See :meth:`Webhooks.deliveries`."""
+        return await self._client._invoke(_deliveries_op, endpoint_id=endpoint_id)

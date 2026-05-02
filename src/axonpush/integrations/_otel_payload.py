@@ -17,6 +17,7 @@ The payload-shaping code stays bespoke because the OTel SDK doesn't
 expose a public OTLP/JSON encoder — only protobuf via the exporter
 classes. Our shape is what the AxonPush ingest consumes directly.
 """
+
 from __future__ import annotations
 
 import bisect
@@ -44,9 +45,7 @@ _PY_LEVEL_TO_OTEL_FALLBACK: Dict[int, tuple[int, str]] = {
     logging.CRITICAL: (21, "FATAL"),
 }
 _FALLBACK_LEVELS_SORTED = sorted(_PY_LEVEL_TO_OTEL_FALLBACK.keys())
-_FALLBACK_VALUES_SORTED = [
-    _PY_LEVEL_TO_OTEL_FALLBACK[k] for k in _FALLBACK_LEVELS_SORTED
-]
+_FALLBACK_VALUES_SORTED = [_PY_LEVEL_TO_OTEL_FALLBACK[k] for k in _FALLBACK_LEVELS_SORTED]
 
 # Severity *name* → (number, text). Used by integrations that only have a
 # string level (loguru, structlog). The OTel SDK has no canonical

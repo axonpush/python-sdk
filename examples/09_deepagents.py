@@ -1,23 +1,24 @@
-"""
-09 — LangChain Deep Agents Integration
+"""09 — LangChain Deep Agents integration.
 
-Use AxonPush as a callback handler for LangChain Deep Agents to automatically
-trace planning steps, subagent delegation, filesystem operations, LLM calls,
-and tool usage.
+``AxonPushDeepAgentHandler`` traces planning steps, sub-agent delegation,
+filesystem ops, LLM calls, and tool calls produced by ``deepagents``.
 
-Run: uv sync --extra deepagents
-     uv run 09_deepagents.py
+Run::
 
-Requires OPENAI_API_KEY in .env for the actual LLM call.
+    uv sync --extra deepagents
+    uv run examples/09_deepagents.py
+
+Set ``OPENAI_API_KEY`` to actually run the agent; otherwise the script
+just prints the wiring pattern.
 """
 
 import sys
 
-from config import API_KEY, TENANT_ID, BASE_URL, OPENAI_API_KEY, require_credentials
+from config import APP_ID, BASE_URL, CHANNEL_ID, ENVIRONMENT, OPENAI_API_KEY, require_credentials
 
 require_credentials()
 
-from axonpush import AxonPush
+from axonpush import AxonPush  # noqa: E402
 
 try:
     from axonpush.integrations.deepagents import AxonPushDeepAgentHandler
@@ -26,21 +27,29 @@ except ImportError:
     sys.exit(1)
 
 
-def main():
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as client:
-        app = client.apps.create(name="deepagents-demo")
-        channel = client.channels.create(name="agent-traces", app_id=app.id)
-        print(f"App: {app.name} | Channel: {channel.name}\n")
+def main() -> None:
+    with AxonPush(base_url=BASE_URL, environment=ENVIRONMENT) as client:
+        owns_app = APP_ID is None
+        owns_channel = CHANNEL_ID is None
+        app_id = APP_ID
+        channel_id = CHANNEL_ID
+        if owns_app:
+            app = client.apps.create(name="deepagents-demo")
+            assert app is not None
+            app_id = app.id
+        if owns_channel:
+            assert app_id is not None
+            channel = client.channels.create("agent-traces", app_id)
+            assert channel is not None
+            channel_id = channel.id
+        assert channel_id is not None
 
         handler = AxonPushDeepAgentHandler(
-            client=client,
-            channel_id=channel.id,
+            client, channel_id,
             agent_id="deep-agent",
             metadata={"model": "gpt-4o"},
         )
-        print("AxonPushDeepAgentHandler created.")
-        print(f"  Channel ID: {channel.id}")
-        print(f"  Agent ID:   deep-agent\n")
+        print(f"Handler ready (channel={channel_id})\n")
 
         if OPENAI_API_KEY:
             try:
@@ -50,33 +59,31 @@ def main():
                     tools=[],
                     system_prompt="You are a helpful assistant. Be concise.",
                 )
-
                 print("Running Deep Agent with AxonPush tracing...")
                 result = agent.invoke(
                     {"messages": [{"role": "user", "content": "What is 2 + 2?"}]},
                     config={"callbacks": [handler]},
                 )
-                last_msg = result["messages"][-1]
-                print(f"Result: {last_msg.content}\n")
-            except Exception as e:
-                print(f"Deep Agent execution error: {e}\n")
+                print(f"Result: {result['messages'][-1].content}\n")
+            except Exception as exc:
+                print(f"Deep Agent execution error: {exc}\n")
         else:
-            print("OPENAI_API_KEY not set — showing setup pattern only.\n")
-            print("Usage with Deep Agents:")
+            print("OPENAI_API_KEY not set — pattern only:")
             print("  agent = create_deep_agent(tools=[...], system_prompt='...')")
             print("  agent.invoke({'messages': [...]}, config={'callbacks': [handler]})\n")
 
-        events = client.events.list(channel_id=channel.id, limit=20)
-        if events:
-            print(f"Events published to AxonPush ({len(events)}):")
-            for ev in events:
+        listing = client.events.list(channel_id, limit=20)
+        if listing is not None and listing.data:
+            print(f"Events published ({len(listing.data)}):")
+            for ev in listing.data:
                 print(f"  [{ev.event_type}] {ev.identifier}")
         else:
-            print("No events published (set OPENAI_API_KEY in .env to run the agent).")
+            print("No events published (set OPENAI_API_KEY to run the agent).")
 
-        client.channels.delete(channel_id=channel.id)
-        client.apps.delete(app_id=app.id)
-        print("\nCleaned up.")
+        if owns_channel:
+            client.channels.delete(channel_id)
+        if owns_app and app_id is not None:
+            client.apps.delete(app_id)
 
 
 if __name__ == "__main__":

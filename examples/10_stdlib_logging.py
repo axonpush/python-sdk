@@ -1,79 +1,91 @@
-"""
-10 — Stdlib logging handler
+"""10 — Stdlib logging handler.
 
-Ship records from Python's built-in ``logging`` module to AxonPush as
-OpenTelemetry-shaped ``app.log`` events. This is the most common path for
-backend services — FastAPI, Flask, and Django all use stdlib logging.
+Ship records emitted via Python's built-in ``logging`` to AxonPush as
+OpenTelemetry-shaped ``app.log`` events. This is the integration most
+backend services want — FastAPI, Flask, and Django all funnel through
+stdlib logging.
 
-The handler installs a self-recursion filter by default that drops records
-from ``httpx`` / ``httpcore`` / ``axonpush`` (the SDK's own HTTP transport),
-so there's no feedback loop from "publishing a log triggers an HTTP request
-which gets logged which publishes another log...".
+The handler installs a self-recursion filter that drops records from
+``httpx`` / ``httpcore`` / ``axonpush`` so a publish never loops back
+through the handler.
 
-Run: uv run 10_stdlib_logging.py
+Run::
+
+    uv run examples/10_stdlib_logging.py
 """
 
 import logging
 
-from config import API_KEY, TENANT_ID, BASE_URL, require_credentials
+from config import APP_ID, BASE_URL, CHANNEL_ID, ENVIRONMENT, require_credentials
 
 require_credentials()
 
-from axonpush import AxonPush
-from axonpush.integrations.logging_handler import AxonPushLoggingHandler
+from axonpush import AxonPush  # noqa: E402
+from axonpush.integrations.logging_handler import AxonPushLoggingHandler  # noqa: E402
 
 
-def main():
-    with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as client:
-        app = client.apps.create(name="stdlib-logging-demo")
-        channel = client.channels.create(name="service-logs", app_id=app.id)
-        print(f"App: {app.name} | Channel: {channel.name}\n")
+def main() -> None:
+    with AxonPush(base_url=BASE_URL, environment=ENVIRONMENT) as client:
+        owns_app = APP_ID is None
+        owns_channel = CHANNEL_ID is None
+        app_id = APP_ID
+        channel_id = CHANNEL_ID
+        if owns_app:
+            app = client.apps.create(name="stdlib-logging-demo")
+            assert app is not None
+            app_id = app.id
+        if owns_channel:
+            assert app_id is not None
+            channel = client.channels.create("service-logs", app_id)
+            assert channel is not None
+            channel_id = channel.id
+        assert channel_id is not None
 
         handler = AxonPushLoggingHandler(
             client=client,
-            channel_id=channel.id,
+            channel_id=channel_id,
             service_name="my-api",
-            environment="dev",
+            environment=ENVIRONMENT or "dev",
         )
 
         root = logging.getLogger()
         root.setLevel(logging.INFO)
         root.addHandler(handler)
 
-        logger = logging.getLogger("my_app.orders")
-        logger.info("order created", extra={"order_id": 1234, "total": 49.99})
-        logger.warning("stock low for sku=%s", "A-42", extra={"remaining": 3})
+        log = logging.getLogger("my_app.orders")
+        log.info("order created", extra={"order_id": 1234, "total": 49.99})
+        log.warning("stock low for sku=%s", "A-42", extra={"remaining": 3})
         try:
             raise RuntimeError("payment gateway timeout")
         except RuntimeError:
-            logger.exception("failed to charge card", extra={"order_id": 1234})
+            log.exception("failed to charge card", extra={"order_id": 1234})
 
-        # Non-blocking publisher: drain pending records before teardown so
-        # the in-flight HTTP calls don't race the channel/app deletion.
+        # Drain in-flight HTTP calls before tearing down the channel/app so
+        # the publish race doesn't drop the last record.
         handler.flush(timeout=5.0)
-
-        # Detach cleanly so subsequent examples don't inherit the handler.
         root.removeHandler(handler)
         handler.close()
 
-        events = client.events.list(channel_id=channel.id, limit=20)
-        print(f"\nEvents published ({len(events)}):")
-        for ev in events:
-            sev = ev.payload.get("severityText", "?")
-            body = ev.payload.get("body", "")
-            print(f"  [{sev}] {ev.identifier}: {body}")
+        listing = client.events.list(channel_id, limit=20)
+        if listing is not None:
+            print(f"\nEvents published ({len(listing.data)}):")
+            for ev in listing.data:
+                props = ev.payload.additional_properties if ev.payload else {}
+                sev = props.get("severityText", "?")
+                body = props.get("body", "")
+                print(f"  [{sev}] {ev.identifier}: {body}")
 
-        client.channels.delete(channel_id=channel.id)
-        client.apps.delete(app_id=app.id)
-        print("\nCleaned up.")
+        if owns_channel:
+            client.channels.delete(channel_id)
+        if owns_app and app_id is not None:
+            client.apps.delete(app_id)
 
 
-# --- Django integration snippet (for reference) -----------------------------
+# --- Django integration snippet (reference) --------------------------------
 #
-# In a Django project, add this to ``settings.py`` to wire the handler via
-# ``LOGGING`` dictConfig. No pre-built client is needed — the handler reads
-# credentials from AXONPUSH_API_KEY / AXONPUSH_TENANT_ID environment vars,
-# or from explicit ``api_key`` / ``tenant_id`` kwargs.
+# Add this to ``settings.py`` to wire the handler via dictConfig. The handler
+# reads AXONPUSH_API_KEY / AXONPUSH_TENANT_ID from the environment if you
+# don't pass an explicit ``client``.
 #
 #     LOGGING = {
 #         "version": 1,
@@ -81,10 +93,8 @@ def main():
 #         "handlers": {
 #             "axonpush": {
 #                 "class": "axonpush.integrations.logging_handler.AxonPushLoggingHandler",
-#                 "channel_id": 14,
+#                 "channel_id": "ch_…",
 #                 "service_name": "my-django-app",
-#                 # Optional: exclude noisy Django sub-loggers from AxonPush
-#                 # (they still appear in the console handler).
 #                 "exclude_loggers": ["django.db.backends"],
 #             },
 #             "console": {"class": "logging.StreamHandler"},

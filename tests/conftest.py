@@ -17,6 +17,7 @@ variables so they work both on a developer laptop and in CI:
     AXONPUSH_TENANT_ID   default: 1
     AXONPUSH_APP_ID      default: 1
 """
+
 from __future__ import annotations
 
 import os
@@ -30,7 +31,7 @@ from axonpush import _tracing
 BASE_URL = os.getenv("AXONPUSH_BASE_URL", "http://localhost:3000")
 API_KEY = os.getenv("AXONPUSH_API_KEY", "ak_test")
 TENANT_ID = os.getenv("AXONPUSH_TENANT_ID", "1")
-EXISTING_APP_ID = int(os.getenv("AXONPUSH_APP_ID", "1"))
+EXISTING_APP_ID = os.getenv("AXONPUSH_APP_ID", "1")
 
 
 @pytest.fixture(autouse=True)
