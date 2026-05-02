@@ -109,9 +109,11 @@ class RealtimeClient:
         mqtt = self._paho.Client(
             client_id=creds.client_id,
             transport="websockets",
-            protocol=self._paho.MQTTv311,
+            protocol=self._paho.MQTTv5,
         )
-        mqtt.ws_set_options(path=path)
+        mqtt.ws_set_options(path=path, headers={"Sec-WebSocket-Protocol": "mqttv5.0"})
+        if creds.auth_token:
+            mqtt.username_pw_set(creds.auth_token, password="")
         if scheme == "wss":
             mqtt.tls_set()
         mqtt.on_connect = self._on_connect

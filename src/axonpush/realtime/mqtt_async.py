@@ -123,8 +123,12 @@ class AsyncRealtimeClient:
             identifier=creds.client_id,
             transport="websockets",
             websocket_path=path,
+            websocket_headers={"Sec-WebSocket-Protocol": "mqttv5.0"},
             tls_params=self._aiomqtt.TLSParameters() if scheme == "wss" else None,
             keepalive=self._keepalive,
+            protocol=self._aiomqtt.ProtocolVersion.V5,
+            username=creds.auth_token,
+            password="" if creds.auth_token else None,
         )
         await mqtt.__aenter__()
         self._mqtt = mqtt

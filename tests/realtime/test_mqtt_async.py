@@ -71,6 +71,10 @@ class _FakeAiomqttModule:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             pass
 
+    class ProtocolVersion:
+        V5 = "MQTTv5"
+        V311 = "MQTTv311"
+
 
 @pytest.fixture(autouse=True)
 def reset_fake_aiomqtt() -> None:

@@ -48,6 +48,8 @@ class IotCredentials:
     topic_template: str
     client_id: str
     region: str
+    authorizer_name: str | None = None
+    auth_token: str | None = None
 
     def expires_in(self, *, now: datetime | None = None) -> float:
         """Seconds remaining until ``expires_at``."""
@@ -72,6 +74,8 @@ def _from_dto(dto: IotCredentialsResponseDto) -> IotCredentials:
         topic_template=dto.topic_template,
         client_id=dto.client_id,
         region=dto.region,
+        authorizer_name=getattr(dto, "authorizer_name", None) or None,
+        auth_token=getattr(dto, "auth_token", None) or None,
     )
 
 
