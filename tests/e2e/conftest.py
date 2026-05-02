@@ -63,8 +63,8 @@ class _BackendCreds:
     base_url: str
     api_key: str
     tenant_id: str
-    app_id: int
-    channel_id: int
+    app_id: str
+    channel_id: str
 
 
 def _ping_backend(base_url: str) -> bool:
@@ -341,7 +341,7 @@ SELECT u.id || '|' || u."organizationId" FROM new_user u, new_membership, new_ap
     with httpx.Client(base_url=base_url, timeout=10.0) as http:
         r = http.post("/apps", json={"name": f"pytest-app-{suffix}"}, headers=auth)
         r.raise_for_status()
-        app_id = int(r.json()["id"])
+        app_id = str(r.json()["id"])
 
         r = http.post(
             "/channel",
@@ -349,7 +349,7 @@ SELECT u.id || '|' || u."organizationId" FROM new_user u, new_membership, new_ap
             headers=auth,
         )
         r.raise_for_status()
-        channel_id = int(r.json()["id"])
+        channel_id = str(r.json()["id"])
 
     return _BackendCreds(
         base_url=base_url,

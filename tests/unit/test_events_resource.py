@@ -1,332 +1,188 @@
-"""Unit tests for EventsResource — verifies the exact request shape sent to
-``POST /event``, the trace_id auto-generation behavior, the model parsing,
-and the list endpoint.
+"""Unit tests for the ``Events`` / ``AsyncEvents`` resources.
+
+These tests don't open a real HTTP connection. They instantiate the resource
+with a fake ``_invoke``-shaped client and assert the body that would be
+shipped to the backend (the generated DTO instance) matches the user's
+inputs.
 """
+
 from __future__ import annotations
 
-import json
+from typing import Any, Awaitable, Callable
 
-import httpx
 import pytest
 
-from axonpush import AxonPush, EventType
+from axonpush._internal.api.api.event import (
+    event_controller_create_event as _create_op,
+    event_controller_list_events as _list_op,
+)
+from axonpush._internal.api.api.events import (
+    events_search_controller_search as _search_op,
+)
+from axonpush._internal.api.models import (
+    CreateEventDto,
+    CreateEventDtoEventType,
+    EventIngestResponseDto,
+)
+from axonpush._internal.api.types import UNSET
+from axonpush.resources.events import AsyncEvents, Events
 
-from tests.conftest import API_KEY, BASE_URL, TENANT_ID
+CHANNEL_ID = "11111111-1111-1111-1111-111111111111"
 
 
-def _success_response(**overrides):
+def _ingest_response(**overrides: Any) -> EventIngestResponseDto:
     base = {
-        "id": 1,
+        "event_id": "ev_1",
         "identifier": "x",
-        "payload": {},
-        "eventType": "custom",
+        "dedup_key": "x",
+        "created_at": "2026-01-01T00:00:00Z",
+        "queued": True,
     }
     base.update(overrides)
-    return httpx.Response(200, json=base)
+    return EventIngestResponseDto(**base)
 
 
-def _request_body(route) -> dict:
-    return json.loads(route.calls.last.request.content)
+class FakeSyncClient:
+    """Captures the op + kwargs the resource passes to ``_invoke``."""
+
+    def __init__(self, return_value: Any = None) -> None:
+        self.calls: list[tuple[Callable[..., Any], dict[str, Any]]] = []
+        self.return_value = return_value
+
+    def _invoke(self, op: Callable[..., Any], /, **kwargs: Any) -> Any:
+        self.calls.append((op, kwargs))
+        return self.return_value
 
 
-class TestPublishRequestBody:
-    def test_minimal_request_body(self, mock_router):
-        route = mock_router.post("/event").mock(return_value=_success_response())
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.publish("greet", {"hello": "world"}, channel_id=5)
+class FakeAsyncClient:
+    def __init__(self, return_value: Any = None) -> None:
+        self.calls: list[tuple[Callable[..., Awaitable[Any]], dict[str, Any]]] = []
+        self.return_value = return_value
 
-        body = _request_body(route)
-        assert body["identifier"] == "greet"
-        assert body["payload"] == {"hello": "world"}
-        assert body["channel_id"] == 5
-        # trace_id auto-populated when not passed (camelCased on the wire)
-        assert "traceId" in body
-        assert body["traceId"].startswith("tr_")
-
-    def test_camelcase_field_aliases(self, mock_router):
-        """All snake_case kwargs must be sent as camelCase on the wire so the
-        NestJS backend's class-validator accepts them."""
-        route = mock_router.post("/event").mock(return_value=_success_response())
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.publish(
-                "greet",
-                {},
-                channel_id=5,
-                agent_id="bot",
-                trace_id="tr_abc1234567890000",
-                span_id="sp_001",
-                parent_event_id=42,
-                event_type=EventType.AGENT_TOOL_CALL_START,
-                metadata={"k": "v"},
-            )
-
-        body = _request_body(route)
-        assert body["agentId"] == "bot"
-        assert body["traceId"] == "tr_abc1234567890000"
-        assert body["spanId"] == "sp_001"
-        assert body["parentEventId"] == 42
-        assert body["eventType"] == "agent.tool_call.start"
-        assert body["metadata"] == {"k": "v"}
-        # snake_case keys must NOT also appear (would confuse Nest)
-        assert "agent_id" not in body
-        assert "trace_id" not in body
-        assert "span_id" not in body
-        assert "parent_event_id" not in body
-        assert "event_type" not in body
-
-    def test_string_event_type_coerced_to_enum(self, mock_router):
-        route = mock_router.post("/event").mock(return_value=_success_response())
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.publish(
-                "x", {}, channel_id=5, event_type="agent.handoff"
-            )
-        assert _request_body(route)["eventType"] == "agent.handoff"
-
-    def test_explicit_trace_id_overrides_auto(self, mock_router):
-        route = mock_router.post("/event").mock(return_value=_success_response())
-        explicit = "tr_my_explicit_trace_xx"
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.publish("x", {}, channel_id=5, trace_id=explicit)
-        assert _request_body(route)["traceId"] == explicit
-
-    def test_none_optional_fields_excluded(self, mock_router):
-        """The Pydantic model uses ``exclude_none=True``, so optional fields
-        we didn't set must not appear in the request body."""
-        route = mock_router.post("/event").mock(return_value=_success_response())
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.publish("x", {}, channel_id=5)
-        body = _request_body(route)
-        for excluded in ("agentId", "spanId", "parentEventId", "eventType", "metadata"):
-            assert excluded not in body
-
-    def test_publish_returns_none_on_fail_open(self, mock_router):
-        mock_router.post("/event").mock(side_effect=httpx.ConnectError("refused"))
-        with AxonPush(
-            api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=True
-        ) as c:
-            result = c.events.publish("x", {}, channel_id=5)
-        assert result is None
-
-    def test_fail_open_sentinel_distinct_from_204_response(self, mock_router):
-        """``events.publish()`` uses ``_is_fail_open()`` to detect the
-        fail-open sentinel and short-circuit to ``None``. A real 204 (or empty
-        200) response from the backend ALSO yields ``None`` from the transport
-        layer — but the sentinel check (``data is _FAIL_OPEN_SENTINEL``) is an
-        identity check, so a real ``None`` won't trigger short-circuit. It
-        falls through to ``Event.model_validate(None)``, which raises a
-        Pydantic ValidationError.
-
-        This test pins the current behavior so a future refactor that
-        accidentally treats ``None`` like the sentinel (and silently swallows
-        a 204) is loud, not silent. **This is a real SDK quirk worth
-        documenting** — if the backend ever returns 204 here, the SDK will
-        crash. Worth opening an issue against axonpush-python.
-        """
-        from pydantic import ValidationError as PydValidationError
-
-        mock_router.post("/event").mock(return_value=httpx.Response(204))
-        with AxonPush(
-            api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL
-        ) as c:
-            with pytest.raises(PydValidationError):
-                c.events.publish("x", {}, channel_id=5)
+    async def _invoke(self, op: Callable[..., Awaitable[Any]], /, **kwargs: Any) -> Any:
+        self.calls.append((op, kwargs))
+        return self.return_value
 
 
-class TestPublishResponseParsing:
-    def test_parses_event_with_camelcase_aliases(self, mock_router):
-        """Legacy synchronous-write response shape: backend returns the full
-        Event with a DB-assigned ``id``. SDK must parse every field."""
-        mock_router.post("/event").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "id": 99,
-                    "identifier": "boot",
-                    "payload": {"step": 1},
-                    "agentId": "orchestrator",
-                    "traceId": "tr_xyz",
-                    "spanId": "sp_001",
-                    "eventType": "agent.start",
-                    "metadata": {"src": "test"},
-                },
-            )
+class TestPublishBody:
+    def test_minimal_publish_assembles_dto(self) -> None:
+        fake = FakeSyncClient(return_value=_ingest_response())
+        events = Events(fake)
+        result = events.publish("greet", {"hello": "world"}, channel_id=CHANNEL_ID)
+
+        assert isinstance(result, EventIngestResponseDto)
+        op, kwargs = fake.calls[0]
+        assert op is _create_op.sync
+        body = kwargs["body"]
+        assert isinstance(body, CreateEventDto)
+        assert body.identifier == "greet"
+        assert body.channel_id == CHANNEL_ID
+        assert body.payload.additional_properties == {"hello": "world"}
+        # trace_id auto-generated when none was provided (UUID4 string)
+        assert isinstance(body.trace_id, str)
+        assert len(body.trace_id) == 36 and body.trace_id.count("-") == 4
+        # Optional fields default to UNSET
+        assert body.agent_id is UNSET
+        assert body.span_id is UNSET
+        assert body.parent_event_id is UNSET
+        assert body.metadata is UNSET
+        assert body.environment is UNSET
+
+    def test_explicit_trace_id_is_passed_through(self) -> None:
+        fake = FakeSyncClient(return_value=_ingest_response())
+        events = Events(fake)
+        events.publish("x", {}, channel_id=CHANNEL_ID, trace_id="tr_explicit")
+
+        body = fake.calls[0][1]["body"]
+        assert body.trace_id == "tr_explicit"
+
+    def test_string_event_type_is_coerced_to_enum(self) -> None:
+        fake = FakeSyncClient(return_value=_ingest_response())
+        events = Events(fake)
+        events.publish("x", {}, channel_id=CHANNEL_ID, event_type="agent.handoff")
+
+        body = fake.calls[0][1]["body"]
+        assert body.event_type is CreateEventDtoEventType.AGENT_HANDOFF
+
+    def test_enum_event_type_is_passed_through(self) -> None:
+        fake = FakeSyncClient(return_value=_ingest_response())
+        events = Events(fake)
+        events.publish("x", {}, channel_id=CHANNEL_ID, event_type=CreateEventDtoEventType.AGENT_END)
+
+        body = fake.calls[0][1]["body"]
+        assert body.event_type is CreateEventDtoEventType.AGENT_END
+
+    def test_metadata_wrapped_into_dto(self) -> None:
+        fake = FakeSyncClient(return_value=_ingest_response())
+        events = Events(fake)
+        events.publish("x", {}, channel_id=CHANNEL_ID, metadata={"src": "test"})
+
+        body = fake.calls[0][1]["body"]
+        assert body.metadata is not UNSET
+        assert body.metadata.additional_properties == {"src": "test"}
+
+    def test_all_tracing_fields_propagate(self) -> None:
+        fake = FakeSyncClient(return_value=_ingest_response())
+        events = Events(fake)
+        events.publish(
+            "x",
+            {},
+            channel_id=CHANNEL_ID,
+            agent_id="bot",
+            trace_id="tr_fixed",
+            span_id="sp_fixed",
+            parent_event_id="ev_parent",
+            environment="staging",
         )
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            event = c.events.publish("boot", {"step": 1}, channel_id=5)
-        assert event is not None
-        assert event.id == 99
-        assert event.agent_id == "orchestrator"
-        assert event.trace_id == "tr_xyz"
-        assert event.span_id == "sp_001"
-        assert event.event_type == EventType.AGENT_START
-        assert event.metadata == {"src": "test"}
 
-    def test_parses_async_ingest_queued_response(self, mock_router):
-        """Default async-ingest response shape (v0.0.7+): backend returns
-        ``{identifier, queued: true, createdAt, environmentId}`` with no
-        ``id``. ``Event.id`` must parse as ``None`` and ``Event.queued`` as
-        ``True``. Pins the new default behavior — a regression that re-makes
-        ``id`` required would break every publisher."""
-        mock_router.post("/event").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "identifier": "boot",
-                    "queued": True,
-                    "createdAt": "2026-04-21T10:00:00Z",
-                    "environmentId": 7,
-                },
-            )
-        )
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            event = c.events.publish("boot", {}, channel_id=5)
-        assert event is not None
-        assert event.id is None
-        assert event.queued is True
-        assert event.identifier == "boot"
-        assert event.environment_id == 7
-
-
-class TestEnvironment:
-    def test_client_environment_header_sent(self, mock_router):
-        """Constructor ``environment=`` must reach the wire as
-        ``X-Axonpush-Environment`` on every request."""
-        route = mock_router.post("/event").mock(return_value=_success_response())
-        with AxonPush(
-            api_key=API_KEY,
-            tenant_id=TENANT_ID,
-            base_url=BASE_URL,
-            environment="production",
-        ) as c:
-            c.events.publish("x", {}, channel_id=5)
-        assert route.calls.last.request.headers["x-axonpush-environment"] == "production"
-
-    def test_no_environment_header_when_unset(self, mock_router):
-        route = mock_router.post("/event").mock(return_value=_success_response())
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.publish("x", {}, channel_id=5)
-        assert "x-axonpush-environment" not in route.calls.last.request.headers
-
-    def test_per_call_environment_in_request_body(self, mock_router):
-        """Per-call ``environment=`` on publish() overrides the client default
-        and travels in the request body (not the header)."""
-        route = mock_router.post("/event").mock(return_value=_success_response())
-        with AxonPush(
-            api_key=API_KEY,
-            tenant_id=TENANT_ID,
-            base_url=BASE_URL,
-            environment="production",
-        ) as c:
-            c.events.publish("x", {}, channel_id=5, environment="eval")
-        assert _request_body(route)["environment"] == "eval"
-
-    def test_client_environment_context_manager(self, mock_router):
-        """``with client.environment("eval"):`` overrides per-call env for the
-        block and restores the client default on exit."""
-        route = mock_router.post("/event").mock(return_value=_success_response())
-        with AxonPush(
-            api_key=API_KEY,
-            tenant_id=TENANT_ID,
-            base_url=BASE_URL,
-            environment="production",
-        ) as c:
-            with c.environment("eval"):
-                c.events.publish("inside", {}, channel_id=5)
-            c.events.publish("outside", {}, channel_id=5)
-
-        bodies = [json.loads(call.request.content) for call in route.calls]
-        inside = next(b for b in bodies if b["identifier"] == "inside")
-        outside = next(b for b in bodies if b["identifier"] == "outside")
-        assert inside["environment"] == "eval"
-        assert outside["environment"] == "production"
+        body = fake.calls[0][1]["body"]
+        assert body.agent_id == "bot"
+        assert body.trace_id == "tr_fixed"
+        assert body.span_id == "sp_fixed"
+        assert body.parent_event_id == "ev_parent"
+        assert body.environment == "staging"
 
 
 class TestList:
-    def test_list_endpoint_path(self, mock_router):
-        route = mock_router.get("/event").mock(
-            return_value=httpx.Response(200, json=[])
-        )
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            result = c.events.list(5)
-        assert route.called
-        assert route.calls.last.request.url.params.get("channelId") == "5"
-        assert result == []
+    def test_list_calls_list_op_with_channel_id(self) -> None:
+        fake = FakeSyncClient(return_value=None)
+        events = Events(fake)
+        events.list(CHANNEL_ID)
 
-    def test_list_typed_filters_in_query_string(self, mock_router):
-        route = mock_router.get("/event").mock(
-            return_value=httpx.Response(200, json=[])
-        )
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.list(
-                5,
-                event_type="agent.error",
-                agent_id="bot",
-                trace_id="tr_x",
-                cursor="cur_42",
-                limit=50,
-            )
-        params = route.calls.last.request.url.params
-        assert params.get("channelId") == "5"
-        assert params.get("eventType") == "agent.error"
-        assert params.get("agentId") == "bot"
-        assert params.get("traceId") == "tr_x"
-        assert params.get("cursor") == "cur_42"
-        assert params.get("limit") == "50"
+        op, kwargs = fake.calls[0]
+        assert op is _list_op.sync
+        assert kwargs == {"channel_id": CHANNEL_ID}
 
-    def test_list_payload_filter_json_encoded(self, mock_router):
-        route = mock_router.get("/event").mock(
-            return_value=httpx.Response(200, json=[])
-        )
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.list(5, payload_filter={"status": {"$eq": "ok"}})
-        params = route.calls.last.request.url.params
-        assert params.get("payloadFilter") == '{"status": {"$eq": "ok"}}'
+    def test_search_calls_search_op_with_no_args(self) -> None:
+        fake = FakeSyncClient(return_value=None)
+        events = Events(fake)
+        events.search()
 
-    def test_list_parses_envelope_data_field(self, mock_router):
-        """Backend may wrap the result list in {data: [...]} — list() unwraps."""
-        mock_router.get("/event").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "data": [
-                        {
-                            "id": 1,
-                            "identifier": "a",
-                            "payload": {},
-                            "eventType": "custom",
-                        },
-                        {
-                            "id": 2,
-                            "identifier": "b",
-                            "payload": {},
-                            "eventType": "custom",
-                        },
-                    ]
-                },
-            )
-        )
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            events = c.events.list(5)
-        assert len(events) == 2
-        assert events[0].identifier == "a"
-        assert events[1].identifier == "b"
-
-    def test_list_returns_empty_on_fail_open(self, mock_router):
-        mock_router.get("/event").mock(side_effect=httpx.ConnectError("refused"))
-        with AxonPush(
-            api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL, fail_open=True
-        ) as c:
-            result = c.events.list(5)
-        assert result == []
+        op, kwargs = fake.calls[0]
+        assert op is _search_op.sync
+        assert kwargs == {}
 
 
-class TestSearch:
-    def test_search_endpoint_path(self, mock_router):
-        route = mock_router.get("/event/search").mock(
-            return_value=httpx.Response(200, json=[])
-        )
-        with AxonPush(api_key=API_KEY, tenant_id=TENANT_ID, base_url=BASE_URL) as c:
-            c.events.search(channel_id=5, event_type=["agent.start", "agent.end"])
-        params = route.calls.last.request.url.params
-        assert params.get("channelId") == "5"
-        assert params.get("eventType") == "agent.start,agent.end"
+class TestAsyncEvents:
+    @pytest.mark.asyncio
+    async def test_async_publish_dispatches_asyncio_op(self) -> None:
+        fake = FakeAsyncClient(return_value=_ingest_response())
+        events = AsyncEvents(fake)
+        result = await events.publish("greet", {}, channel_id=CHANNEL_ID)
+
+        assert isinstance(result, EventIngestResponseDto)
+        op, kwargs = fake.calls[0]
+        assert op is _create_op.asyncio
+        body = kwargs["body"]
+        assert isinstance(body, CreateEventDto)
+        assert body.identifier == "greet"
+
+    @pytest.mark.asyncio
+    async def test_async_list_dispatches_asyncio_op(self) -> None:
+        fake = FakeAsyncClient(return_value=None)
+        events = AsyncEvents(fake)
+        await events.list(CHANNEL_ID)
+
+        op, kwargs = fake.calls[0]
+        assert op is _list_op.asyncio
+        assert kwargs == {"channel_id": CHANNEL_ID}
