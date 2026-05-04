@@ -139,7 +139,7 @@ class TestBackgroundPublisherOverflow:
 
     def test_drop_warning_is_rate_limited(self, caplog: pytest.LogCaptureFixture) -> None:
         slow = _SlowSyncClient(delay=0.5)
-        caplog.set_level(logging.WARNING, logger="axonpush.publisher")
+        caplog.set_level(logging.WARNING)
         pub = BackgroundPublisher(slow, queue_size=1)
         try:
             for i in range(30):
@@ -149,22 +149,32 @@ class TestBackgroundPublisherOverflow:
         finally:
             pub.close(timeout=0.1)
 
-    def test_worker_survives_publish_exception(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_worker_survives_publish_exception(self) -> None:
+        from unittest.mock import patch
+
+        from axonpush.integrations import _publisher as p
+
         client = FakeSyncClient()
         client.events.exception = RuntimeError("boom")
-        caplog.set_level(logging.WARNING, logger="axonpush.publisher")
-        pub = BackgroundPublisher(client)
-        try:
-            pub.submit(_publish_kwargs("first_fails"))
-            pub.flush(timeout=1.0)
-            client.events.exception = None
-            pub.submit(_publish_kwargs("second_ok"))
-            pub.flush(timeout=1.0)
-        finally:
-            pub.close()
-        # Worker recorded both attempts (both reach `publish`, first raises).
-        assert len(client.events.calls) == 2
-        assert any("publish failed" in r.message for r in caplog.records)
+        # Isolate the rate-limit cache and spy on the logger together —
+        # otherwise a sibling test's daemon thread can seed
+        # `_publish_failure_last_warn` with the same `(None, None)` key and
+        # the rate-limiter swallows the warning we want to assert.
+        with (
+            patch.object(p, "_internal_logger") as spy_logger,
+            patch.dict(p._publish_failure_last_warn, clear=True),
+        ):
+            pub = BackgroundPublisher(client)
+            try:
+                pub.submit(_publish_kwargs("first_fails"))
+                pub.flush(timeout=1.0)
+                client.events.exception = None
+                pub.submit(_publish_kwargs("second_ok"))
+                pub.flush(timeout=1.0)
+            finally:
+                pub.close()
+            assert len(client.events.calls) == 2
+            assert spy_logger.warning.call_count + spy_logger.error.call_count >= 1
 
 
 class TestPublisherReentrancyGuard:
@@ -229,7 +239,7 @@ class TestAsyncBackgroundPublisher:
     ) -> None:
         client = FakeAsyncClient()
         client.events.exception = RuntimeError("nope")
-        caplog.set_level(logging.WARNING, logger="axonpush.publisher")
+        caplog.set_level(logging.WARNING)
         pub = AsyncBackgroundPublisher(client)
         try:
             pub.submit(_publish_kwargs("fails"))
@@ -357,7 +367,7 @@ class TestFlushAfterInvocation:
         def fn() -> str:
             return "ok"
 
-        caplog.set_level(logging.WARNING, logger="axonpush.publisher")
+        caplog.set_level(logging.WARNING)
         assert fn() == "ok"
         assert any("flush() raised" in r.message for r in caplog.records)
 
@@ -384,16 +394,35 @@ class TestPublishFailureLogging:
     (connection / 5xx). Config errors get ERROR level with the operator
     hint surfaced — those don't fix themselves and the user needs to
     notice. Transient errors stay at WARNING.
+
+    Each test stacks two patches:
+
+    * ``patch.object(_publisher, "_internal_logger")`` — spy on the
+      logger so we don't depend on caplog handler levels, propagation
+      settings, or daemon-thread emit timing (all of which were sources
+      of the original cross-Python-version flakiness).
+    * ``patch.dict(_publisher._publish_failure_last_warn, clear=True)`` —
+      give each test an isolated rate-limit cache. ``patch.dict``
+      restores the original entries (and removes any new ones) on exit,
+      so test order doesn't matter and a daemon thread from a sibling
+      test cannot pollute the cache mid-test.
     """
 
-    def setup_method(self) -> None:
+    @staticmethod
+    def _isolate() -> Any:
+        from contextlib import ExitStack
+        from unittest.mock import patch
+
         from axonpush.integrations import _publisher as p
 
-        p._publish_failure_last_warn.clear()
+        stack = ExitStack()
+        spy = stack.enter_context(patch.object(p, "_internal_logger"))
+        stack.enter_context(patch.dict(p._publish_failure_last_warn, clear=True))
+        # Wrap the stack so callers can `with self._isolate() as spy:`.
+        stack.spy_logger = spy  # type: ignore[attr-defined]
+        return stack
 
-    def test_validation_error_logs_at_error_with_hint(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_validation_error_logs_at_error_with_hint(self) -> None:
         from axonpush.exceptions import ValidationError
         from axonpush.integrations._publisher import _log_publish_failure
 
@@ -403,51 +432,53 @@ class TestPublishFailureLogging:
             code="invalid_environment",
             hint="set AXONPUSH_ENVIRONMENT to one of the configured slugs",
         )
-        caplog.set_level(logging.DEBUG, logger="axonpush.publisher")
-        _log_publish_failure(exc)
 
-        rec = next(r for r in caplog.records if r.name == "axonpush.publisher")
-        assert rec.levelno == logging.ERROR
-        assert "configuration error" in rec.message
-        assert "set AXONPUSH_ENVIRONMENT" in rec.message
-        assert "invalid_environment" in rec.message
+        with self._isolate() as stack:
+            _log_publish_failure(exc)
+            spy_logger = stack.spy_logger
 
-    def test_4xx_other_than_429_treated_as_config_error(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+            spy_logger.error.assert_called_once()
+            spy_logger.warning.assert_not_called()
+            fmt, *args = spy_logger.error.call_args.args
+            rendered = fmt % tuple(args)
+            assert "configuration error" in rendered
+            assert "set AXONPUSH_ENVIRONMENT" in rendered
+            assert "invalid_environment" in rendered
+
+    def test_4xx_other_than_429_treated_as_config_error(self) -> None:
         from axonpush.exceptions import AxonPushError
         from axonpush.integrations._publisher import _log_publish_failure
 
-        caplog.set_level(logging.DEBUG, logger="axonpush.publisher")
-        _log_publish_failure(
-            AxonPushError("forbidden", status_code=403, code="forbidden")
-        )
-        rec = next(r for r in caplog.records if r.name == "axonpush.publisher")
-        assert rec.levelno == logging.ERROR
+        with self._isolate() as stack:
+            _log_publish_failure(
+                AxonPushError("forbidden", status_code=403, code="forbidden")
+            )
+            spy_logger = stack.spy_logger
 
-    def test_connection_error_stays_at_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+            spy_logger.error.assert_called_once()
+            spy_logger.warning.assert_not_called()
+
+    def test_connection_error_stays_at_warning(self) -> None:
         from axonpush.exceptions import APIConnectionError
         from axonpush.integrations._publisher import _log_publish_failure
 
-        caplog.set_level(logging.DEBUG, logger="axonpush.publisher")
-        _log_publish_failure(APIConnectionError("dns fail"))
-        rec = next(r for r in caplog.records if r.name == "axonpush.publisher")
-        assert rec.levelno == logging.WARNING
+        with self._isolate() as stack:
+            _log_publish_failure(APIConnectionError("dns fail"))
+            spy_logger = stack.spy_logger
 
-    def test_rate_limited_per_error_key(self, caplog: pytest.LogCaptureFixture) -> None:
+            spy_logger.warning.assert_called_once()
+            spy_logger.error.assert_not_called()
+
+    def test_rate_limited_per_error_key(self) -> None:
         from axonpush.exceptions import ValidationError
         from axonpush.integrations._publisher import _log_publish_failure
 
         exc = ValidationError(
             "bad env", status_code=400, code="invalid_environment"
         )
-        caplog.set_level(logging.DEBUG, logger="axonpush.publisher")
-        _log_publish_failure(exc)
-        _log_publish_failure(exc)
-        _log_publish_failure(exc)
 
-        # Same (code, status) key — should suppress repeats within window.
-        publisher_records = [r for r in caplog.records if r.name == "axonpush.publisher"]
-        assert len(publisher_records) == 1
+        with self._isolate() as stack:
+            _log_publish_failure(exc)
+            _log_publish_failure(exc)
+            _log_publish_failure(exc)
+            assert stack.spy_logger.error.call_count == 1

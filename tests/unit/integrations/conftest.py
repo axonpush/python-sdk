@@ -68,3 +68,24 @@ def fake_sync_client() -> FakeSyncClient:
 @pytest.fixture()
 def fake_async_client() -> FakeAsyncClient:
     return FakeAsyncClient()
+
+
+@pytest.fixture(autouse=True)
+def _reset_publish_failure_cache() -> Any:
+    """Isolate the publisher's rate-limit cache across tests.
+
+    `_log_publish_failure` keeps a module-level dict keyed by
+    ``(error_code, status_code)`` so a misconfigured deploy doesn't spam
+    the log. Several integration tests inject a `RuntimeError` into a
+    fake client to exercise the publisher's exception path; that path
+    seeds ``(None, None)`` into the cache. Without isolation, any later
+    test that asserts a record was emitted for a non-AxonPushError
+    exception sees the rate-limit kick in instead and `caplog.records`
+    stays empty — a flaky failure that surfaces on whichever Python
+    version happens to schedule the polluting test first.
+    """
+    from axonpush.integrations import _publisher as p
+
+    p._publish_failure_last_warn.clear()
+    yield
+    p._publish_failure_last_warn.clear()
