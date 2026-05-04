@@ -4,6 +4,42 @@ All notable changes to the AxonPush Python SDK are documented here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.12] – 2026-05-04
+
+Three real-world reliability fixes surfaced by integrating the SDK into
+a multi-service production codebase. All three were previously worked
+around in user code; this release makes the workarounds unnecessary.
+
+### Fixed
+
+- **Self-instrumentation amplification**: when a project enabled OTel
+  HTTPX auto-instrumentation alongside the SDK's `AxonPushSpanExporter`,
+  every SDK publish HTTPX call generated an OTel span which the exporter
+  re-published, generating another span, and so on. Each SDK request now
+  runs inside an OpenTelemetry context that flags both
+  `suppress_instrumentation` and `suppress_http_instrumentation`, so any
+  HTTP-style OTel instrumentor (httpx, urllib3, aiohttp, …) skips spans
+  for our publishes. The `OTEL_PYTHON_HTTPX_EXCLUDED_URLS` workaround is
+  no longer needed. Soft-imports `opentelemetry`; no-op when unavailable.
+- **`AsyncAxonPush` loop-stall across `asyncio.run()` boundaries**:
+  `httpx.AsyncClient` pins its connection pool and a few asyncio
+  primitives to the loop where its first request runs. In serverless and
+  worker patterns that drive each task with a fresh `asyncio.run(...)`,
+  the loop the previous client bound to has already been closed by the
+  time the next `asyncio.run` starts; the cached client stalled on
+  closed-loop primitives. `AsyncAxonPush` now defers httpx construction
+  to first use and rebuilds when the running loop is a different object.
+  Comparison uses `is` (not `id()`) because Python may reuse a closed
+  loop's id for a freshly-created loop.
+- **Silent config-error failures in the background publisher**: every
+  failure was logged at WARNING with just the exception text, so an
+  invalid `AXONPUSH_ENVIRONMENT` slug or a wrong tenant id silently
+  dropped every event. The publisher now distinguishes config errors
+  (ValidationError, any 4xx except 429) from transient errors and logs
+  config errors at ERROR with the server's hint surfaced and a
+  `"this is a configuration error"` callout. Rate-limited per
+  `(code, status)` to one log per 60s.
+
 ## [0.0.11] – 2026-05-02
 
 `RealtimeClient` and `AsyncRealtimeClient` now connect through the
