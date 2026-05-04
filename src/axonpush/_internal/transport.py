@@ -10,6 +10,13 @@ Builds the generated ``AuthenticatedClient`` with httpx event hooks that:
 Also exposes synchronous and asynchronous retry helpers that re-issue calls
 on :class:`~axonpush.exceptions.RetryableError` with exponential backoff and
 honour ``Retry-After`` for rate-limit responses.
+
+The retry helpers run each request inside an OpenTelemetry context that
+sets both ``suppress_instrumentation`` and ``suppress_http_instrumentation``
+keys, so an upstream OTel HTTP instrumentor (httpx, urllib3, aiohttp, ...)
+never creates a span for the SDK's own publish/list calls. This avoids the
+amplification loop where every published span generates another span which
+gets published, and so on.
 """
 
 from __future__ import annotations
@@ -32,6 +39,48 @@ from axonpush.exceptions import (
 )
 
 _BACKOFF_SCHEDULE: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0, 4.0)
+
+# Both keys exist across opentelemetry versions; setting both is forward-
+# and backward-compatible. Different instrumentors check different keys.
+_OTEL_SUPPRESS_KEYS: tuple[str, ...] = (
+    "suppress_instrumentation",
+    "suppress_http_instrumentation",
+)
+
+
+class _OtelSuppression:
+    """Context manager that flags the current OTel context to skip instrumentation.
+
+    Soft-imports ``opentelemetry``; if not installed, this is a no-op.
+    HTTP-style instrumentations (httpx, urllib3, aiohttp, ...) check these
+    keys before creating a span and skip when set.
+    """
+
+    __slots__ = ("_tokens",)
+
+    def __init__(self) -> None:
+        self._tokens: list[Any] = []
+
+    def __enter__(self) -> "_OtelSuppression":
+        try:
+            from opentelemetry import context as _otel_context
+        except ImportError:
+            return self
+        for key in _OTEL_SUPPRESS_KEYS:
+            self._tokens.append(_otel_context.attach(_otel_context.set_value(key, True)))
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        if not self._tokens:
+            return
+        try:
+            from opentelemetry import context as _otel_context
+        except ImportError:
+            self._tokens.clear()
+            return
+        for tok in reversed(self._tokens):
+            _otel_context.detach(tok)
+        self._tokens.clear()
 
 
 class _DetailedSyncOp(Protocol):
@@ -196,7 +245,8 @@ def call_with_retries_sync(
     last_error: AxonPushError | None = None
     for attempt in range(max_retries + 1):
         try:
-            return op.sync_detailed(**kwargs)
+            with _OtelSuppression():
+                return op.sync_detailed(**kwargs)
         except RetryableError as exc:
             last_error = exc
         except (httpx.TransportError, httpx.RequestError) as exc:
@@ -235,7 +285,8 @@ async def call_with_retries_async(
     last_error: AxonPushError | None = None
     for attempt in range(max_retries + 1):
         try:
-            return await op.asyncio_detailed(**kwargs)
+            with _OtelSuppression():
+                return await op.asyncio_detailed(**kwargs)
         except RetryableError as exc:
             last_error = exc
         except (httpx.TransportError, httpx.RequestError) as exc:

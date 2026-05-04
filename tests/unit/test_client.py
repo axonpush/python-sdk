@@ -248,6 +248,45 @@ class TestAsyncFacade:
         await c.close()
 
 
+class TestAsyncFacadeLoopSafety:
+    """``AsyncAxonPush`` must rebuild its httpx.AsyncClient when the running
+    event loop changes. Prior versions kept a single client across
+    ``asyncio.run(...)`` boundaries; the second invocation hung because
+    httpx's connection pool primitives were pinned to a now-closed loop.
+    """
+
+    def test_construction_outside_loop_does_not_build_client(self) -> None:
+        c = AsyncAxonPush(api_key="x", tenant_id="1", base_url="http://x.test")
+        # No running loop yet => client deferred.
+        assert c._client is None  # pyright: ignore[reportPrivateUsage]
+        assert c._client_loop is None  # pyright: ignore[reportPrivateUsage]
+
+    def test_separate_asyncio_run_calls_get_separate_clients(self) -> None:
+        import asyncio
+
+        c = AsyncAxonPush(api_key="x", tenant_id="1", base_url="http://x.test")
+
+        async def _capture() -> Any:
+            return c._get_client()  # pyright: ignore[reportPrivateUsage]
+
+        client_a = asyncio.run(_capture())
+        client_b = asyncio.run(_capture())
+
+        # ``id()`` of two consecutive ``asyncio.run`` loops can collide when
+        # the first loop is GC'd before the second is created — comparing
+        # the loop objects with ``is`` (which is what ``_get_client`` does)
+        # avoids that pitfall. The contract we care about: the cached
+        # client must not be reused across two ``asyncio.run`` boundaries.
+        assert client_a is not client_b, "AsyncAxonPush should rebuild on loop change"
+
+    async def test_same_loop_reuses_client(self) -> None:
+        c = AsyncAxonPush(api_key="x", tenant_id="1", base_url="http://x.test")
+        first = c._get_client()  # pyright: ignore[reportPrivateUsage]
+        second = c._get_client()  # pyright: ignore[reportPrivateUsage]
+        assert first is second, "same-loop calls must hit the cache"
+        await c.close()
+
+
 class TestSyncFacadeWire:
     """End-to-end sanity check using respx — confirms the facade composes."""
 

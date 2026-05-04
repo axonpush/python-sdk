@@ -4,10 +4,20 @@ Provides :class:`AxonPush` (synchronous) and :class:`AsyncAxonPush`
 (asynchronous) clients. Both expose lazily-loaded resource accessors and a
 single ``_invoke`` chokepoint that all resource modules route through, so
 retries, fail-open semantics and request-id propagation stay in one place.
+
+:class:`AsyncAxonPush` rebuilds its underlying ``httpx.AsyncClient`` when
+the running event loop changes. ``httpx.AsyncClient`` binds locks and
+connection pools to the loop where its first request runs; a single
+process that drives multiple ``asyncio.run(...)`` calls in sequence (the
+common Lambda / SQS-worker / Celery-eventlet pattern) gets a fresh loop
+each time, and the client from a closed loop will hang on its first
+request to a tear-down event. The fix is to detect the loop change and
+rebuild lazily — see :meth:`AsyncAxonPush._get_client`.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 from pydantic import HttpUrl, SecretStr
@@ -271,8 +281,42 @@ class AsyncAxonPush:
             max_retries=max_retries,
             fail_open=fail_open,
         )
-        self._client: AuthenticatedClient = build_async_client(self._settings)
+        self._client: AuthenticatedClient | None = None
+        # Reference to the asyncio loop the cached _client is bound to. We
+        # compare with `is` not `id()` because Python may reuse a closed
+        # loop's id() for a freshly-created loop in the same process — the
+        # exact case this fix is here to handle. Holding a strong ref is
+        # safe: we always overwrite it, so at most one loop is retained.
+        self._client_loop: Any = None
         self._closed = False
+
+    def _get_client(self) -> "AuthenticatedClient":
+        """Return an ``AuthenticatedClient`` bound to the current running loop.
+
+        ``httpx.AsyncClient`` pins its connection pool and a few asyncio
+        primitives to the loop where its first request runs. In serverless
+        and worker patterns that drive each task with ``asyncio.run(...)``,
+        the loop that the previous client bound to has already been closed
+        by the time the next ``asyncio.run`` starts; using the cached
+        client stalls on closed-loop primitives. This method tracks the
+        loop the cached client was built on and rebuilds whenever the
+        running loop is a different object.
+
+        The previous client's httpx pool is dropped without ``aclose()``
+        (the prior loop is closed; awaiting on it would raise). The OS
+        reclaims the sockets when the references go away — Lambda and
+        worker loops are short-lived, so the leaked sockets don't
+        accumulate in practice.
+        """
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if self._client is not None and self._client_loop is current_loop:
+            return self._client
+        self._client = build_async_client(self._settings)
+        self._client_loop = current_loop
+        return self._client
 
     @property
     def environment(self) -> str | None:
@@ -292,7 +336,7 @@ class AsyncAxonPush:
     @property
     def http(self) -> "AuthenticatedClient":
         """The underlying generated HTTP client (for resource modules)."""
-        return self._client
+        return self._get_client()
 
     async def _invoke(
         self,
@@ -305,10 +349,11 @@ class AsyncAxonPush:
 
         See :meth:`AxonPush._invoke` for behaviour.
         """
+        client = self._get_client()
         try:
             response = await call_with_retries_async(
                 op,
-                client=self._client,
+                client=client,
                 max_retries=self._settings.max_retries,
                 **kwargs,
             )
@@ -322,10 +367,27 @@ class AsyncAxonPush:
         return parsed
 
     async def close(self) -> None:
-        """Close the underlying HTTP client. Idempotent."""
+        """Close the underlying HTTP client on the current loop. Idempotent.
+
+        Only closes the client bound to the current running loop (if any).
+        Clients bound to closed loops are unreachable; their sockets are
+        reclaimed by GC.
+        """
         if self._closed:
             return
-        await self._client.get_async_httpx_client().aclose()
+        client = self._client
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if client is not None and self._client_loop is current_loop:
+            try:
+                await client.get_async_httpx_client().aclose()
+            except RuntimeError:
+                # Loop already mid-shutdown; best-effort.
+                pass
+            self._client = None
+            self._client_loop = None
         self._closed = True
 
     aclose = close
