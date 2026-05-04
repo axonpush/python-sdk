@@ -288,3 +288,59 @@ class TestCallWithRetriesAsync:
         with pytest.raises(AxonPushError):
             await call_with_retries_async(op, max_retries=1, sleep=fake_sleep)
         assert op.calls == 2
+
+
+_otel = pytest.importorskip("opentelemetry.context")
+
+
+class TestOtelSuppression:
+    """Each SDK request runs under an OTel context that flags
+    ``suppress_instrumentation`` and ``suppress_http_instrumentation`` so an
+    upstream OTel HTTP instrumentor (httpx, urllib3, ...) skips spans for
+    our own publishes — preventing the amplification loop where a published
+    span generates another span which gets published, etc.
+    """
+
+    def test_sync_call_sees_suppression_keys_set(self) -> None:
+        observed: dict[str, Any] = {}
+
+        class _Probe:
+            def sync_detailed(self, **kwargs: Any) -> Any:
+                observed["suppress_instrumentation"] = _otel.get_value("suppress_instrumentation")
+                observed["suppress_http_instrumentation"] = _otel.get_value(
+                    "suppress_http_instrumentation"
+                )
+                return "ok"
+
+        result = call_with_retries_sync(_Probe(), max_retries=0)
+        assert result == "ok"
+        assert observed == {
+            "suppress_instrumentation": True,
+            "suppress_http_instrumentation": True,
+        }
+        # Restored after the call.
+        assert _otel.get_value("suppress_instrumentation") is None
+        assert _otel.get_value("suppress_http_instrumentation") is None
+
+    async def test_async_call_sees_suppression_keys_set(self) -> None:
+        observed: dict[str, Any] = {}
+
+        class _Probe:
+            async def asyncio_detailed(self, **kwargs: Any) -> Any:
+                observed["suppress_instrumentation"] = _otel.get_value("suppress_instrumentation")
+                observed["suppress_http_instrumentation"] = _otel.get_value(
+                    "suppress_http_instrumentation"
+                )
+                return "ok"
+
+        async def fake_sleep(s: float) -> None:
+            pass
+
+        result = await call_with_retries_async(_Probe(), max_retries=0, sleep=fake_sleep)
+        assert result == "ok"
+        assert observed == {
+            "suppress_instrumentation": True,
+            "suppress_http_instrumentation": True,
+        }
+        assert _otel.get_value("suppress_instrumentation") is None
+        assert _otel.get_value("suppress_http_instrumentation") is None
