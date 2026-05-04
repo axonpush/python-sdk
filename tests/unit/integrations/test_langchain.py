@@ -71,6 +71,43 @@ class TestSyncHandler:
         h.on_chain_start({"name": "x"}, {}, run_id=uuid.uuid4())
         assert fake_sync_client.events.calls[0]["channel_id"] == "99"
 
+    def test_chain_start_falls_back_to_kwargs_name_for_langgraph(
+        self, fake_sync_client: FakeSyncClient
+    ) -> None:
+        # LangGraph passes serialized={} and exposes the node identity via
+        # kwargs["name"] + kwargs["metadata"]["langgraph_node"]. The SDK must
+        # surface that — pre-0.0.13 it emitted "unknown".
+        h = AxonPushCallbackHandler(fake_sync_client, "ch_x", mode="sync")
+        h.on_chain_start(
+            {},
+            {"messages": []},
+            run_id=uuid.uuid4(),
+            name="researcher",
+            metadata={"langgraph_node": "researcher", "langgraph_step": 3},
+            tags=["graph:my_graph"],
+        )
+        call = fake_sync_client.events.calls[0]
+        assert call["payload"]["chain_type"] == "researcher"
+        assert call["metadata"]["langgraph_node"] == "researcher"
+        assert call["metadata"]["langgraph_step"] == 3
+        assert call["metadata"]["tags"] == ["graph:my_graph"]
+
+    def test_llm_start_uses_invocation_params_model(
+        self, fake_sync_client: FakeSyncClient
+    ) -> None:
+        # serialized.name is the wrapper class ("ChatOpenAI"); the real model
+        # id is in invocation_params (or serialized.kwargs.model). Pre-0.0.13
+        # the trace would just show "ChatOpenAI".
+        h = AxonPushCallbackHandler(fake_sync_client, "ch_x", mode="sync")
+        h.on_llm_start(
+            {"name": "ChatOpenAI", "kwargs": {"model_name": "gpt-4o-mini"}},
+            ["hi"],
+            run_id=uuid.uuid4(),
+            invocation_params={"model": "gpt-4o-mini-2024-07-18"},
+        )
+        call = fake_sync_client.events.calls[0]
+        assert call["payload"]["model"] == "gpt-4o-mini-2024-07-18"
+
 
 class TestAsyncHandler:
     async def test_chain_start_via_background_publisher(

@@ -4,6 +4,52 @@ All notable changes to the AxonPush Python SDK are documented here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.13] – 2026-05-05
+
+Quality-of-life fix for traces emitted from LangGraph and modern Chat*
+LLM wrappers. The SDK was discarding the most useful identity information
+LangChain provides on its callbacks, leaving every event labeled
+``chain_type: "unknown"`` / ``model: "ChatOpenAI"`` in the dashboard.
+
+### Fixed
+
+- **`chain_type: "unknown"` for every LangGraph step**: LangGraph compiles
+  graph nodes down to anonymous Runnables, which means
+  ``on_chain_start(serialized, ...)`` receives ``serialized={}`` and pushes
+  the node identity into ``kwargs["name"]`` plus
+  ``kwargs["metadata"]["langgraph_node"]``. The handler previously read only
+  ``serialized["name"]`` and fell back to the literal string ``"unknown"``,
+  so traces were impossible to read for any graph-style agent. The handler
+  now derives a name from ``kwargs["name"]`` → ``metadata["langgraph_node"]``
+  → ``serialized["name"]`` → last segment of ``serialized["id"]`` → the
+  truthful fallback ``"Runnable"``.
+- **`model: "ChatOpenAI"` instead of the actual model id**: every LLM
+  callback was emitting the LangChain wrapper class name (``ChatOpenAI``,
+  ``ChatAnthropic``, …) instead of the configured model. The handler now
+  prefers ``kwargs["invocation_params"]["model"|"model_name"]`` (set by
+  every modern Chat* integration at call-time) and falls back through
+  ``serialized["kwargs"]["model"|"model_name"]`` before landing on the
+  class-name fallback.
+
+### Added
+
+- **Per-event metadata enrichment**: every ``on_chain_start`` and
+  ``on_llm_start`` now propagates ``langgraph_node``, ``langgraph_step``,
+  ``langgraph_triggers``, ``thread_id``, ``run_type``, and ``tags`` from
+  LangChain's callback ``**kwargs`` into the event ``metadata`` block, so
+  the AxonPush UI can group/filter by graph node and tag without needing
+  the user to wire a custom ``metadata=`` argument at handler construction.
+- New helpers ``derive_runnable_name``, ``derive_model_name``, and
+  ``extract_run_metadata`` in ``axonpush.integrations._utils`` (internal —
+  used by both the LangChain and DeepAgent handlers).
+
+### Migration
+
+No code changes required. Existing handlers continue to construct the same
+way; events that used to land with ``chain_type: "unknown"`` will now show
+the real Runnable / LangGraph node name. Dashboards filtering on
+``chain_type == "unknown"`` should be retired or updated.
+
 ## [0.0.12] – 2026-05-04
 
 Three real-world reliability fixes surfaced by integrating the SDK into

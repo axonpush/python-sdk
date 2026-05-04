@@ -47,7 +47,13 @@ from axonpush.integrations._publisher import (
     DEFAULT_SHUTDOWN_TIMEOUT_S,
     RqPublisher,
 )
-from axonpush.integrations._utils import coerce_channel_id, safe_serialize
+from axonpush.integrations._utils import (
+    coerce_channel_id,
+    derive_model_name,
+    derive_runnable_name,
+    extract_run_metadata,
+    safe_serialize,
+)
 from axonpush.models import EventType
 
 if TYPE_CHECKING:
@@ -134,10 +140,13 @@ def _publish_kwargs(
     metadata: Dict[str, Any],
     run_id: Optional[UUID],
     parent_run_id: Optional[UUID],
+    extra_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     if run_id is not None:
         span_id = str(run_id)
         metadata = {**metadata, "langchain_run_id": str(run_id)}
+    if extra_metadata:
+        metadata = {**metadata, **extra_metadata}
     out: Dict[str, Any] = {
         "identifier": identifier,
         "payload": payload,
@@ -202,11 +211,12 @@ class AxonPushDeepAgentHandler(BaseCallbackHandler):
             "chain.start",
             EventType.AGENT_START,
             {
-                "chain_type": (serialized or {}).get("name", "unknown"),
+                "chain_type": derive_runnable_name(serialized, kwargs),
                 "inputs": safe_serialize(inputs),
             },
             run_id=run_id,
             parent_run_id=parent_run_id,
+            extra_metadata=extract_run_metadata(kwargs),
         )
 
     def on_chain_end(
@@ -254,11 +264,12 @@ class AxonPushDeepAgentHandler(BaseCallbackHandler):
             "llm.start",
             EventType.AGENT_START,
             {
-                "model": (serialized or {}).get("name", "unknown"),
+                "model": derive_model_name(serialized, kwargs),
                 "prompt_count": len(prompts),
             },
             run_id=run_id,
             parent_run_id=parent_run_id,
+            extra_metadata=extract_run_metadata(kwargs),
         )
 
     def on_llm_end(
@@ -356,6 +367,7 @@ class AxonPushDeepAgentHandler(BaseCallbackHandler):
         *,
         run_id: Optional[UUID] = None,
         parent_run_id: Optional[UUID] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         try:
             kwargs = _publish_kwargs(
@@ -369,6 +381,7 @@ class AxonPushDeepAgentHandler(BaseCallbackHandler):
                 metadata=self._base_metadata,
                 run_id=run_id,
                 parent_run_id=parent_run_id,
+                extra_metadata=extra_metadata,
             )
             if self._publisher is not None:
                 self._publisher.submit(kwargs)
@@ -434,11 +447,12 @@ class AsyncAxonPushDeepAgentHandler(AsyncCallbackHandler):
             "chain.start",
             EventType.AGENT_START,
             {
-                "chain_type": (serialized or {}).get("name", "unknown"),
+                "chain_type": derive_runnable_name(serialized, kwargs),
                 "inputs": safe_serialize(inputs),
             },
             run_id=run_id,
             parent_run_id=parent_run_id,
+            extra_metadata=extract_run_metadata(kwargs),
         )
 
     async def on_chain_end(
@@ -486,11 +500,12 @@ class AsyncAxonPushDeepAgentHandler(AsyncCallbackHandler):
             "llm.start",
             EventType.AGENT_START,
             {
-                "model": (serialized or {}).get("name", "unknown"),
+                "model": derive_model_name(serialized, kwargs),
                 "prompt_count": len(prompts),
             },
             run_id=run_id,
             parent_run_id=parent_run_id,
+            extra_metadata=extract_run_metadata(kwargs),
         )
 
     async def on_llm_end(
@@ -588,6 +603,7 @@ class AsyncAxonPushDeepAgentHandler(AsyncCallbackHandler):
         *,
         run_id: Optional[UUID] = None,
         parent_run_id: Optional[UUID] = None,
+        extra_metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         try:
             kwargs = _publish_kwargs(
@@ -601,6 +617,7 @@ class AsyncAxonPushDeepAgentHandler(AsyncCallbackHandler):
                 metadata=self._base_metadata,
                 run_id=run_id,
                 parent_run_id=parent_run_id,
+                extra_metadata=extra_metadata,
             )
             if self._publisher is not None:
                 self._publisher.submit(kwargs)
