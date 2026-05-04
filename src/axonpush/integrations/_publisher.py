@@ -65,6 +65,59 @@ _internal_logger = logging.getLogger("axonpush.publisher")
 DEFAULT_QUEUE_SIZE = 1000
 DEFAULT_SHUTDOWN_TIMEOUT_S = 2.0
 DROP_WARNING_INTERVAL_S = 10.0
+PUBLISH_FAILURE_WARN_INTERVAL_S = 60.0
+
+
+_publish_failure_last_warn: Dict[tuple[str | None, int | None], float] = {}
+
+
+def _log_publish_failure(exc: BaseException) -> None:
+    """Log a background-publish failure at the right level, rate-limited.
+
+    ValidationError (and any 4xx) is a config mistake — wrong API key,
+    wrong tenant, env slug not registered for this tenant, channel id
+    that doesn't exist. Those failures don't fix themselves and the user
+    needs to know. Logged at ERROR with the code/hint surfaced, and
+    rate-limited to one log per ``PUBLISH_FAILURE_WARN_INTERVAL_S`` per
+    (code, status_code) key so a misconfigured deploy doesn't spam.
+
+    Connection / server errors stay at WARNING — those usually self-heal
+    on retry, and the SDK's transport layer already retried before this
+    handler saw the exception.
+    """
+    from axonpush.exceptions import AxonPushError, ValidationError
+
+    code = getattr(exc, "code", None) if isinstance(exc, AxonPushError) else None
+    status = getattr(exc, "status_code", None) if isinstance(exc, AxonPushError) else None
+    key = (code, status)
+
+    now = time.monotonic()
+    last = _publish_failure_last_warn.get(key, 0.0)
+    if now - last < PUBLISH_FAILURE_WARN_INTERVAL_S:
+        return
+    _publish_failure_last_warn[key] = now
+
+    is_config_error = isinstance(exc, ValidationError) or (
+        isinstance(exc, AxonPushError)
+        and status is not None
+        and 400 <= status < 500
+        and status != 429
+    )
+
+    if is_config_error:
+        hint = getattr(exc, "hint", None) if isinstance(exc, AxonPushError) else None
+        suffix = f" (hint: {hint})" if hint else ""
+        _internal_logger.error(
+            "axonpush publish rejected by server: %s%s "
+            "[code=%s status=%s]. This is a configuration error — events "
+            "from this client will keep being rejected until you fix it.",
+            exc,
+            suffix,
+            code,
+            status,
+        )
+    else:
+        _internal_logger.warning("axonpush publish failed: %s", exc)
 
 _SERVERLESS_MARKERS = (
     ("AWS_LAMBDA_FUNCTION_NAME", "AWS Lambda"),
@@ -187,7 +240,7 @@ class BackgroundPublisher:
                 try:
                     self._client.events.publish(**item)
                 except Exception as exc:
-                    _internal_logger.warning("axonpush publish failed: %s", exc)
+                    _log_publish_failure(exc)
                 finally:
                     _in_publisher_path.reset(token)
             finally:
@@ -309,7 +362,7 @@ class AsyncBackgroundPublisher:
                 try:
                     await self._client.events.publish(**item)
                 except Exception as exc:
-                    _internal_logger.warning("axonpush async publish failed: %s", exc)
+                    _log_publish_failure(exc)
                 finally:
                     _in_publisher_path.reset(token)
             finally:

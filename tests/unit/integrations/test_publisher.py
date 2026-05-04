@@ -376,3 +376,78 @@ class TestForkSafety:
         from axonpush.integrations import _publisher as p
 
         assert p._reset_all_publishers_after_fork is not None
+
+
+class TestPublishFailureLogging:
+    """The publisher's background loop uses ``_log_publish_failure`` to
+    distinguish config errors (ValidationError, 4xx) from transient errors
+    (connection / 5xx). Config errors get ERROR level with the operator
+    hint surfaced — those don't fix themselves and the user needs to
+    notice. Transient errors stay at WARNING.
+    """
+
+    def setup_method(self) -> None:
+        from axonpush.integrations import _publisher as p
+
+        p._publish_failure_last_warn.clear()
+
+    def test_validation_error_logs_at_error_with_hint(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from axonpush.exceptions import ValidationError
+        from axonpush.integrations._publisher import _log_publish_failure
+
+        exc = ValidationError(
+            "environment 'development' is not registered",
+            status_code=400,
+            code="invalid_environment",
+            hint="set AXONPUSH_ENVIRONMENT to one of the configured slugs",
+        )
+        caplog.set_level(logging.DEBUG, logger="axonpush.publisher")
+        _log_publish_failure(exc)
+
+        rec = next(r for r in caplog.records if r.name == "axonpush.publisher")
+        assert rec.levelno == logging.ERROR
+        assert "configuration error" in rec.message
+        assert "set AXONPUSH_ENVIRONMENT" in rec.message
+        assert "invalid_environment" in rec.message
+
+    def test_4xx_other_than_429_treated_as_config_error(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from axonpush.exceptions import AxonPushError
+        from axonpush.integrations._publisher import _log_publish_failure
+
+        caplog.set_level(logging.DEBUG, logger="axonpush.publisher")
+        _log_publish_failure(
+            AxonPushError("forbidden", status_code=403, code="forbidden")
+        )
+        rec = next(r for r in caplog.records if r.name == "axonpush.publisher")
+        assert rec.levelno == logging.ERROR
+
+    def test_connection_error_stays_at_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from axonpush.exceptions import APIConnectionError
+        from axonpush.integrations._publisher import _log_publish_failure
+
+        caplog.set_level(logging.DEBUG, logger="axonpush.publisher")
+        _log_publish_failure(APIConnectionError("dns fail"))
+        rec = next(r for r in caplog.records if r.name == "axonpush.publisher")
+        assert rec.levelno == logging.WARNING
+
+    def test_rate_limited_per_error_key(self, caplog: pytest.LogCaptureFixture) -> None:
+        from axonpush.exceptions import ValidationError
+        from axonpush.integrations._publisher import _log_publish_failure
+
+        exc = ValidationError(
+            "bad env", status_code=400, code="invalid_environment"
+        )
+        caplog.set_level(logging.DEBUG, logger="axonpush.publisher")
+        _log_publish_failure(exc)
+        _log_publish_failure(exc)
+        _log_publish_failure(exc)
+
+        # Same (code, status) key — should suppress repeats within window.
+        publisher_records = [r for r in caplog.records if r.name == "axonpush.publisher"]
+        assert len(publisher_records) == 1
