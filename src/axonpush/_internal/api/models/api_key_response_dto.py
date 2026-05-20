@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, BinaryIO, Generator, TextIO, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -16,7 +16,6 @@ T = TypeVar("T", bound="ApiKeyResponseDto")
 class ApiKeyResponseDto:
     """
     Attributes:
-        id (str):
         api_key_id (str):
         org_id (str):
         name (str):
@@ -31,7 +30,6 @@ class ApiKeyResponseDto:
         revoked_at (str | Unset):
     """
 
-    id: str
     api_key_id: str
     org_id: str
     name: str
@@ -47,8 +45,6 @@ class ApiKeyResponseDto:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        id = self.id
-
         api_key_id = self.api_key_id
 
         org_id = self.org_id
@@ -80,7 +76,6 @@ class ApiKeyResponseDto:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "id": id,
                 "apiKeyId": api_key_id,
                 "orgId": org_id,
                 "name": name,
@@ -107,8 +102,6 @@ class ApiKeyResponseDto:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        id = d.pop("id")
-
         api_key_id = d.pop("apiKeyId")
 
         org_id = d.pop("orgId")
@@ -139,7 +132,6 @@ class ApiKeyResponseDto:
         revoked_at = d.pop("revokedAt", UNSET)
 
         api_key_response_dto = cls(
-            id=id,
             api_key_id=api_key_id,
             org_id=org_id,
             name=name,

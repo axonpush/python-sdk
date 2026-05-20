@@ -719,6 +719,121 @@
         ]
       }
     },
+    "/billing/plans": {
+      "get": {
+        "operationId": "BillingController_getPlans",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingPlansResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/usage": {
+      "get": {
+        "operationId": "BillingController_getUsage",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingUsageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/checkout": {
+      "post": {
+        "operationId": "BillingController_createCheckout",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillingCheckoutRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingCheckoutResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/portal": {
+      "get": {
+        "operationId": "BillingController_getPortal",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingPortalResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "billing"
+        ]
+      }
+    },
+    "/billing/webhook": {
+      "post": {
+        "operationId": "BillingController_handleWebhook",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingWebhookResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "billing"
+        ]
+      }
+    },
     "/feature-flags/me": {
       "get": {
         "operationId": "FeatureFlagsController_me",
@@ -1067,6 +1182,69 @@
         ]
       }
     },
+    "/channel": {
+      "get": {
+        "operationId": "ChannelController_listChannels",
+        "parameters": [
+          {
+            "name": "appId",
+            "required": true,
+            "in": "query",
+            "description": "App UUID to scope the listing.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChannelResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "channels"
+        ]
+      },
+      "post": {
+        "operationId": "ChannelController_createChannel",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/createChannelDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "channels"
+        ]
+      }
+    },
     "/channel/{id}": {
       "get": {
         "operationId": "ChannelController_getChannel",
@@ -1143,37 +1321,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OkResponseDto"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "channels"
-        ]
-      }
-    },
-    "/channel": {
-      "post": {
-        "operationId": "ChannelController_createChannel",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/createChannelDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChannelResponseDto"
                 }
               }
             }
@@ -2997,6 +3144,14 @@
           },
           "region": {
             "type": "string"
+          },
+          "authorizerName": {
+            "type": "string",
+            "description": "IoT custom authorizer name to invoke. Already encoded in `presignedWssUrl` query string; exposed for clients that need to set it via header."
+          },
+          "authToken": {
+            "type": "string",
+            "description": "Bearer token to pass as the MQTT CONNECT username. The IoT custom authorizer reads it from `mqttContext.username`."
           }
         },
         "required": [
@@ -3413,6 +3568,194 @@
           "userId"
         ]
       },
+      "PlanFeaturesDto": {
+        "type": "object",
+        "properties": {
+          "rbac": {
+            "type": "boolean"
+          },
+          "auditLog": {
+            "type": "boolean"
+          },
+          "sso": {
+            "type": "boolean"
+          },
+          "customRetention": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PlanVariantsDto": {
+        "type": "object",
+        "properties": {
+          "monthly": {
+            "type": "string"
+          },
+          "annual": {
+            "type": "string"
+          }
+        }
+      },
+      "PlanLimitsDto": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "number",
+            "nullable": true
+          },
+          "retentionDays": {
+            "type": "number",
+            "nullable": true
+          },
+          "seats": {
+            "type": "number",
+            "nullable": true
+          },
+          "features": {
+            "$ref": "#/components/schemas/PlanFeaturesDto"
+          },
+          "lemonsqueezyVariants": {
+            "$ref": "#/components/schemas/PlanVariantsDto"
+          }
+        },
+        "required": [
+          "events",
+          "retentionDays",
+          "seats",
+          "features"
+        ]
+      },
+      "BillingPlansResponseDto": {
+        "type": "object",
+        "properties": {
+          "plans": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PlanLimitsDto"
+            },
+            "description": "Plan id keyed by Plan enum value (free, pro, team, scale, selfhost).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlanLimitsDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "plans"
+        ]
+      },
+      "BillingUsageResponseDto": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string"
+          },
+          "used": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number",
+            "nullable": true
+          },
+          "retentionDays": {
+            "type": "number",
+            "nullable": true
+          },
+          "seats": {
+            "type": "number",
+            "nullable": true
+          },
+          "cycleStartedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "subscriptionStatus": {
+            "type": "string",
+            "enum": [
+              "active",
+              "past_due",
+              "paused",
+              "trialing",
+              "trial_expired"
+            ]
+          },
+          "trialEndsAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ISO timestamp; null when no trial active"
+          }
+        },
+        "required": [
+          "plan",
+          "used",
+          "subscriptionStatus"
+        ]
+      },
+      "BillingCheckoutRequestDto": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "enum": [
+              "pro",
+              "team"
+            ]
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "annual"
+            ],
+            "default": "monthly"
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      },
+      "BillingCheckoutResponseDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "BillingPortalResponseDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "BillingWebhookResponseDto": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "deduped": {
+            "type": "boolean"
+          },
+          "skipped": {
+            "type": "string"
+          },
+          "enqueuedRetry": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
       "FeatureFlagsResponseDto": {
         "type": "object",
         "properties": {
@@ -3528,76 +3871,53 @@
           "id": {
             "type": "string"
           },
-          "apiKeyId": {
-            "type": "string"
-          },
-          "orgId": {
-            "type": "string"
-          },
-          "appId": {
-            "type": "string"
-          },
-          "environmentId": {
-            "type": "string"
-          },
           "name": {
             "type": "string"
           },
-          "scopes": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "publish",
-                "subscribe",
-                "events:read",
-                "traces:read",
-                "apps:manage",
-                "channels:manage",
-                "webhooks:manage"
-              ]
-            }
-          },
-          "allowEnvironmentOverride": {
-            "type": "boolean"
-          },
           "prefix": {
-            "type": "string"
-          },
-          "lastUsedAt": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "updatedAt": {
-            "type": "string"
-          },
-          "revokedAt": {
             "type": "string"
           },
           "key": {
             "type": "string",
             "description": "Raw API key, only returned at creation time"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "publish",
+                "subscribe",
+                "events:read",
+                "traces:read",
+                "apps:manage",
+                "channels:manage",
+                "webhooks:manage"
+              ]
+            }
+          },
+          "environmentId": {
+            "type": "string"
+          },
+          "allowEnvironmentOverride": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string"
           }
         },
         "required": [
           "id",
-          "apiKeyId",
-          "orgId",
           "name",
+          "key",
           "scopes",
           "allowEnvironmentOverride",
-          "createdAt",
-          "key"
+          "createdAt"
         ]
       },
       "ApiKeyResponseDto": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
-          },
           "apiKeyId": {
             "type": "string"
           },
@@ -3648,7 +3968,6 @@
           }
         },
         "required": [
-          "id",
           "apiKeyId",
           "orgId",
           "name",
@@ -3853,10 +4172,7 @@
           "channels": {
             "type": "array",
             "items": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/ChannelResponseDto"
-              }
+              "$ref": "#/components/schemas/ChannelResponseDto"
             }
           }
         },
@@ -3865,8 +4181,7 @@
           "appId",
           "orgId",
           "name",
-          "createdAt",
-          "channels"
+          "createdAt"
         ]
       },
       "createChannelDto": {
@@ -3948,6 +4263,10 @@
       "EventIngestResponseDto": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "description": "Alias of eventId, populated by the global IdAliasInterceptor."
+          },
           "eventId": {
             "type": "string"
           },
@@ -3972,6 +4291,7 @@
           }
         },
         "required": [
+          "id",
           "eventId",
           "identifier",
           "dedupKey",
@@ -4151,7 +4471,7 @@
           "description": {
             "type": "string"
           },
-          "isActive": {
+          "active": {
             "type": "boolean"
           },
           "createdAt": {
@@ -4178,7 +4498,7 @@
           "endpointId",
           "channelId",
           "url",
-          "isActive",
+          "active",
           "createdAt"
         ]
       },
@@ -4215,7 +4535,7 @@
           "description": {
             "type": "string"
           },
-          "isActive": {
+          "active": {
             "type": "boolean"
           },
           "createdAt": {
@@ -4233,7 +4553,7 @@
           "endpointId",
           "channelId",
           "url",
-          "isActive",
+          "active",
           "createdAt"
         ]
       },

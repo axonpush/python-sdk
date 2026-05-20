@@ -8,7 +8,7 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.success_response_dto import SuccessResponseDto
 from ...models.transfer_ownership_dto import TransferOwnershipDto
-from ...types import Response
+from ...types import UNSET, Response
 
 
 def _get_kwargs(

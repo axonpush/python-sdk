@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, Generator, TextIO, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -15,6 +15,7 @@ T = TypeVar("T", bound="EventIngestResponseDto")
 class EventIngestResponseDto:
     """
     Attributes:
+        id (str): Alias of eventId, populated by the global IdAliasInterceptor.
         event_id (str):
         identifier (str):
         dedup_key (str):
@@ -24,6 +25,7 @@ class EventIngestResponseDto:
         environment_id (None | str | Unset):
     """
 
+    id: str
     event_id: str
     identifier: str
     dedup_key: str
@@ -34,6 +36,8 @@ class EventIngestResponseDto:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        id = self.id
+
         event_id = self.event_id
 
         identifier = self.identifier
@@ -56,6 +60,7 @@ class EventIngestResponseDto:
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
+                "id": id,
                 "eventId": event_id,
                 "identifier": identifier,
                 "dedupKey": dedup_key,
@@ -73,6 +78,8 @@ class EventIngestResponseDto:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        id = d.pop("id")
+
         event_id = d.pop("eventId")
 
         identifier = d.pop("identifier")
@@ -95,6 +102,7 @@ class EventIngestResponseDto:
         environment_id = _parse_environment_id(d.pop("environmentId", UNSET))
 
         event_ingest_response_dto = cls(
+            id=id,
             event_id=event_id,
             identifier=identifier,
             dedup_key=dedup_key,

@@ -258,10 +258,12 @@ version = "0.0.13"
 source = { editable = "." }
 dependencies = [
     { name = "aiomqtt" },
+    { name = "attrs" },
     { name = "httpx" },
     { name = "paho-mqtt" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "python-dateutil" },
 ]
 
 [package.optional-dependencies]
@@ -275,6 +277,7 @@ all = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
     { name = "rq" },
+    { name = "sentry-sdk" },
     { name = "structlog" },
 ]
 anthropic = [
@@ -309,6 +312,9 @@ otel = [
 rq = [
     { name = "rq" },
 ]
+sentry = [
+    { name = "sentry-sdk" },
+]
 structlog = [
     { name = "structlog" },
 ]
@@ -323,6 +329,7 @@ dev = [
 requires-dist = [
     { name = "aiomqtt", specifier = ">=2.0,<3.0" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.30.0" },
+    { name = "attrs", specifier = ">=21.3.0" },
     { name = "axonpush", extras = ["anthropic"], marker = "extra == 'all'" },
     { name = "axonpush", extras = ["crewai"], marker = "extra == 'all'" },
     { name = "axonpush", extras = ["deepagents"], marker = "extra == 'all'" },
@@ -331,6 +338,7 @@ requires-dist = [
     { name = "axonpush", extras = ["openai-agents"], marker = "extra == 'all'" },
     { name = "axonpush", extras = ["otel"], marker = "extra == 'all'" },
     { name = "axonpush", extras = ["rq"], marker = "extra == 'all'" },
+    { name = "axonpush", extras = ["sentry"], marker = "extra == 'all'" },
     { name = "axonpush", extras = ["structlog"], marker = "extra == 'all'" },
     { name = "crewai", marker = "python_full_version >= '3.11' and extra == 'crewai'", specifier = ">=0.50.0" },
     { name = "deepagents", marker = "python_full_version >= '3.11' and extra == 'deepagents'", specifier = ">=0.1.0" },
@@ -346,12 +354,14 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.0,<3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
+    { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "rq", marker = "extra == 'rq'", specifier = ">=2.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
+    { name = "sentry-sdk", marker = "extra == 'sentry'", specifier = ">=2.0" },
     { name = "structlog", marker = "extra == 'structlog'", specifier = ">=24.0.0" },
 ]
-provides-extras = ["langchain", "openai-agents", "anthropic", "crewai", "deepagents", "loguru", "structlog", "rq", "otel", "all", "dev"]
+provides-extras = ["langchain", "openai-agents", "anthropic", "crewai", "deepagents", "loguru", "structlog", "rq", "sentry", "otel", "all", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -4116,6 +4126,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/6c/25/3fc9114abf979a41673ce877c08016f8e660ad6cf508c3957f537d2e9fa9/ruff-0.15.6-py3-none-win32.whl", hash = "sha256:bbf67d39832404812a2d23020dda68fee7f18ce15654e96fb1d3ad21a5fe436c", size = 10616872, upload-time = "2026-03-12T23:05:42.451Z" },
     { url = "https://files.pythonhosted.org/packages/89/7a/09ece68445ceac348df06e08bf75db72d0e8427765b96c9c0ffabc1be1d9/ruff-0.15.6-py3-none-win_amd64.whl", hash = "sha256:aee25bc84c2f1007ecb5037dff75cef00414fdf17c23f07dc13e577883dca406", size = 11787271, upload-time = "2026-03-12T23:05:20.168Z" },
     { url = "https://files.pythonhosted.org/packages/7f/d0/578c47dd68152ddddddf31cd7fc67dc30b7cdf639a86275fda821b0d9d98/ruff-0.15.6-py3-none-win_arm64.whl", hash = "sha256:c34de3dd0b0ba203be50ae70f5910b17188556630e2178fd7d79fc030eb0d837", size = 11060497, upload-time = "2026-03-12T23:05:25.968Z" },
+]
+
+[[package]]
+name = "sentry-sdk"
+version = "2.59.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/65/e0/9bf5e5fc7442b10880f3ec0eff0ef4208b84a099606f343ec4f5445227fb/sentry_sdk-2.59.0.tar.gz", hash = "sha256:cd265808ef8bf3f3edf69b527c0a0b2b6b1322762679e55b8987db2e9584aec1", size = 447331, upload-time = "2026-05-04T12:19:06.538Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bf/00/b8cc413748fb6383d1582e7cda51314f99743351c462a92dc690d5b5853b/sentry_sdk-2.59.0-py2.py3-none-any.whl", hash = "sha256:abcf65ee9a9d9cdebf9ad369782408ecca9c1c792686ef06ba34f5ab233527fe", size = 468432, upload-time = "2026-05-04T12:19:04.741Z" },
 ]
 
 [[package]]

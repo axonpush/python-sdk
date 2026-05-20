@@ -1,5 +1,6 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
+from urllib.parse import quote
 
 import httpx
 
@@ -8,7 +9,7 @@ from ...client import AuthenticatedClient, Client
 from ...models.auth_controller_google_auth_response_201 import AuthControllerGoogleAuthResponse201
 from ...models.google_auth_dto import GoogleAuthDto
 from ...models.google_auth_response_dto import GoogleAuthResponseDto
-from ...types import Response
+from ...types import UNSET, Response
 
 
 def _get_kwargs(

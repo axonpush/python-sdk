@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, BinaryIO, Generator, TextIO, TypeVar
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="IotCredentialsResponseDto")
 
@@ -25,6 +26,10 @@ class IotCredentialsResponseDto:
             the publish-side topic-builder layout.
         client_id (str):
         region (str):
+        authorizer_name (str | Unset): IoT custom authorizer name to invoke. Already encoded in `presignedWssUrl` query
+            string; exposed for clients that need to set it via header.
+        auth_token (str | Unset): Bearer token to pass as the MQTT CONNECT username. The IoT custom authorizer reads it
+            from `mqttContext.username`.
     """
 
     endpoint: str
@@ -35,6 +40,8 @@ class IotCredentialsResponseDto:
     topic_template: str
     client_id: str
     region: str
+    authorizer_name: str | Unset = UNSET
+    auth_token: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,6 +61,10 @@ class IotCredentialsResponseDto:
 
         region = self.region
 
+        authorizer_name = self.authorizer_name
+
+        auth_token = self.auth_token
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -68,6 +79,10 @@ class IotCredentialsResponseDto:
                 "region": region,
             }
         )
+        if authorizer_name is not UNSET:
+            field_dict["authorizerName"] = authorizer_name
+        if auth_token is not UNSET:
+            field_dict["authToken"] = auth_token
 
         return field_dict
 
@@ -90,6 +105,10 @@ class IotCredentialsResponseDto:
 
         region = d.pop("region")
 
+        authorizer_name = d.pop("authorizerName", UNSET)
+
+        auth_token = d.pop("authToken", UNSET)
+
         iot_credentials_response_dto = cls(
             endpoint=endpoint,
             presigned_wss_url=presigned_wss_url,
@@ -99,6 +118,8 @@ class IotCredentialsResponseDto:
             topic_template=topic_template,
             client_id=client_id,
             region=region,
+            authorizer_name=authorizer_name,
+            auth_token=auth_token,
         )
 
         iot_credentials_response_dto.additional_properties = d

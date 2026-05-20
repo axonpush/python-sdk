@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, Generator, TextIO, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -19,7 +19,7 @@ class WebhookEndpointResponseDto:
         endpoint_id (str):
         channel_id (str):
         url (str):
-        is_active (bool):
+        active (bool):
         created_at (str):
         org_id (str | Unset):
         event_types (list[str] | Unset):
@@ -34,7 +34,7 @@ class WebhookEndpointResponseDto:
     endpoint_id: str
     channel_id: str
     url: str
-    is_active: bool
+    active: bool
     created_at: str
     org_id: str | Unset = UNSET
     event_types: list[str] | Unset = UNSET
@@ -54,7 +54,7 @@ class WebhookEndpointResponseDto:
 
         url = self.url
 
-        is_active = self.is_active
+        active = self.active
 
         created_at = self.created_at
 
@@ -82,7 +82,7 @@ class WebhookEndpointResponseDto:
                 "endpointId": endpoint_id,
                 "channelId": channel_id,
                 "url": url,
-                "isActive": is_active,
+                "active": active,
                 "createdAt": created_at,
             }
         )
@@ -114,7 +114,7 @@ class WebhookEndpointResponseDto:
 
         url = d.pop("url")
 
-        is_active = d.pop("isActive")
+        active = d.pop("active")
 
         created_at = d.pop("createdAt")
 
@@ -137,7 +137,7 @@ class WebhookEndpointResponseDto:
             endpoint_id=endpoint_id,
             channel_id=channel_id,
             url=url,
-            is_active=is_active,
+            active=active,
             created_at=created_at,
             org_id=org_id,
             event_types=event_types,

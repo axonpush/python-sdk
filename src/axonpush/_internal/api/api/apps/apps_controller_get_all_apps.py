@@ -1,12 +1,13 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
+from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.app_response_dto import AppResponseDto
-from ...types import Response
+from ...types import UNSET, Response
 
 
 def _get_kwargs() -> dict[str, Any]:

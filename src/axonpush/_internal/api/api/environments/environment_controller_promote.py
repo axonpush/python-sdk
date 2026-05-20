@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -10,7 +10,7 @@ from ...models.environment_controller_promote_response_201 import (
     EnvironmentControllerPromoteResponse201,
 )
 from ...models.environment_response_dto import EnvironmentResponseDto
-from ...types import Response
+from ...types import UNSET, Response
 
 
 def _get_kwargs(
