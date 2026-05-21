@@ -96,6 +96,7 @@ dev = [
     "respx>=0.21",
     "ruff>=0.4",
     "mypy>=1.10",
+    "tomli>=2.0; python_version<'3.11'",
 ]
 
 [build-system]
