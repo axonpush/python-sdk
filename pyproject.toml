@@ -109,7 +109,7 @@ packages = ["src/axonpush"]
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-extend-exclude = ["examples"]
+extend-exclude = ["examples", "src/axonpush/_internal/api"]
 
 [tool.mypy]
 python_version = "3.10"
