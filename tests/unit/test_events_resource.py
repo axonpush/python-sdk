@@ -32,6 +32,7 @@ CHANNEL_ID = "11111111-1111-1111-1111-111111111111"
 
 def _ingest_response(**overrides: Any) -> EventIngestResponseDto:
     base = {
+        "id": "ev_1",
         "event_id": "ev_1",
         "identifier": "x",
         "dedup_key": "x",
