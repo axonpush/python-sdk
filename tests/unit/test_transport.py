@@ -57,6 +57,24 @@ class TestBuildSyncClient:
         assert "x-axonpush-trace-id" not in sent
         client.get_httpx_client().close()
 
+    def test_bodiless_request_sends_no_content_type(self) -> None:
+        settings = _settings()
+        client = build_sync_client(settings)
+        with respx.mock(base_url="http://api.example.test") as router:
+            route = router.delete("/apps/app_1").mock(return_value=httpx.Response(204))
+            client.get_httpx_client().delete("/apps/app_1")
+        assert "content-type" not in route.calls.last.request.headers
+        client.get_httpx_client().close()
+
+    def test_request_with_body_keeps_json_content_type(self) -> None:
+        settings = _settings()
+        client = build_sync_client(settings)
+        with respx.mock(base_url="http://api.example.test") as router:
+            route = router.post("/apps").mock(return_value=httpx.Response(201, json={}))
+            client.get_httpx_client().post("/apps", json={"name": "demo"})
+        assert route.calls.last.request.headers["content-type"] == "application/json"
+        client.get_httpx_client().close()
+
     def test_trace_id_header_injected_when_context_active(self) -> None:
         settings = _settings()
         client = build_sync_client(settings)

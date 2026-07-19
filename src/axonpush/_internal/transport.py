@@ -92,7 +92,7 @@ class _DetailedAsyncOp(Protocol):
 
 
 def _auth_headers(settings: Settings) -> dict[str, str]:
-    headers: dict[str, str] = {"Content-Type": "application/json"}
+    headers: dict[str, str] = {}
     if settings.api_key is not None:
         headers["X-API-Key"] = settings.api_key.get_secret_value()
     if settings.tenant_id is not None:
@@ -106,6 +106,8 @@ def _inject_request_headers(request: httpx.Request) -> None:
     ctx = current_trace()
     if ctx is not None:
         request.headers["X-Axonpush-Trace-Id"] = ctx.trace_id
+    if not request.content:
+        request.headers.pop("Content-Type", None)
 
 
 async def _async_inject_request_headers(request: httpx.Request) -> None:

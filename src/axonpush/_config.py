@@ -29,9 +29,11 @@ class Settings(BaseSettings):
         timeout: Per-request timeout in seconds (``AXONPUSH_TIMEOUT``).
         max_retries: Maximum number of automatic retries for retryable
             failures (``AXONPUSH_MAX_RETRIES``).
-        fail_open: When true, the facade swallows
+        fail_open: When true (the default), the facade swallows
             :class:`~axonpush.exceptions.APIConnectionError` and returns
-            ``None`` from invocations (``AXONPUSH_FAIL_OPEN``).
+            ``None`` from invocations, so observability never crashes the
+            host application. Set ``False`` (``AXONPUSH_FAIL_OPEN=false``)
+            to surface connection errors instead.
     """
 
     api_key: SecretStr | None = None
@@ -40,7 +42,7 @@ class Settings(BaseSettings):
     environment: str | None = None
     timeout: float = 30.0
     max_retries: int = 3
-    fail_open: bool = False
+    fail_open: bool = True
 
     model_config = SettingsConfigDict(
         env_prefix="AXONPUSH_",

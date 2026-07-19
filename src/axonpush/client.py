@@ -84,10 +84,11 @@ class AxonPush:
             ``AXONPUSH_TIMEOUT``.
         max_retries: Number of retry attempts on retryable failures. Falls
             back to ``AXONPUSH_MAX_RETRIES``.
-        fail_open: When true, suppress
+        fail_open: When true (the default), suppress
             :class:`~axonpush.exceptions.APIConnectionError` and return
-            ``None`` from :meth:`_invoke`. Falls back to
-            ``AXONPUSH_FAIL_OPEN``.
+            ``None`` from :meth:`_invoke` so observability never crashes
+            the host application. Pass ``False`` to surface those errors.
+            Falls back to ``AXONPUSH_FAIL_OPEN``.
 
     Example::
 

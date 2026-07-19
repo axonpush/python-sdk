@@ -150,9 +150,9 @@ class TestSyncFacadeBehaviour:
                 c._invoke(object())
         c.close()
 
-    def test_fail_open_default_is_false(self) -> None:
+    def test_fail_open_default_is_true(self) -> None:
         c = AxonPush(api_key="x", tenant_id="1", base_url="http://x.test")
-        assert c.fail_open is False
+        assert c.fail_open is True
         c.close()
 
     def test_invoke_passes_max_retries_from_settings(self) -> None:
@@ -193,7 +193,7 @@ class TestSettingsModel:
         s = Settings()
         assert s.timeout == 30.0
         assert s.max_retries == 3
-        assert s.fail_open is False
+        assert s.fail_open is True
         assert str(s.base_url).rstrip("/") == "http://localhost:3000"
 
 
