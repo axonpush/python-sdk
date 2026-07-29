@@ -86,6 +86,10 @@ class TestBuildSyncClient:
                 client.get_httpx_client().get("/health")
             sent = route.calls.last.request.headers
             assert sent["x-axonpush-trace-id"] == ctx.trace_id
+            assert len(sent["x-axonpush-span-id"]) == 16
+            assert sent["traceparent"] == (
+                f"00-11111111111141118111111111111111-{sent['x-axonpush-span-id']}-01"
+            )
         finally:
             from axonpush._tracing import _clear_current_trace
 

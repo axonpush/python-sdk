@@ -119,6 +119,7 @@ def _log_publish_failure(exc: BaseException) -> None:
     else:
         _internal_logger.warning("axonpush publish failed: %s", exc)
 
+
 _SERVERLESS_MARKERS = (
     ("AWS_LAMBDA_FUNCTION_NAME", "AWS Lambda"),
     ("FUNCTION_TARGET", "Google Cloud Functions"),

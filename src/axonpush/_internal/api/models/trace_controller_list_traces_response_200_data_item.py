@@ -27,6 +27,9 @@ class TraceControllerListTracesResponse200DataItem:
         error_count (float):
         tool_call_count (float):
         handoff_count (float):
+        total_tokens (float | Unset):
+        cost_usd (float | None | Unset): Known reported/estimated cost. Omitted when pricing is unknown.
+        status (str | Unset):
     """
 
     trace_id: str
@@ -39,6 +42,9 @@ class TraceControllerListTracesResponse200DataItem:
     error_count: float
     tool_call_count: float
     handoff_count: float
+    total_tokens: float | Unset = UNSET
+    cost_usd: float | None | Unset = UNSET
+    status: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -62,6 +68,16 @@ class TraceControllerListTracesResponse200DataItem:
 
         handoff_count = self.handoff_count
 
+        total_tokens = self.total_tokens
+
+        cost_usd: float | None | Unset
+        if isinstance(self.cost_usd, Unset):
+            cost_usd = UNSET
+        else:
+            cost_usd = self.cost_usd
+
+        status = self.status
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -78,6 +94,12 @@ class TraceControllerListTracesResponse200DataItem:
                 "handoffCount": handoff_count,
             }
         )
+        if total_tokens is not UNSET:
+            field_dict["totalTokens"] = total_tokens
+        if cost_usd is not UNSET:
+            field_dict["costUsd"] = cost_usd
+        if status is not UNSET:
+            field_dict["status"] = status
 
         return field_dict
 
@@ -104,6 +126,19 @@ class TraceControllerListTracesResponse200DataItem:
 
         handoff_count = d.pop("handoffCount")
 
+        total_tokens = d.pop("totalTokens", UNSET)
+
+        def _parse_cost_usd(data: object) -> float | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(float | None | Unset, data)
+
+        cost_usd = _parse_cost_usd(d.pop("costUsd", UNSET))
+
+        status = d.pop("status", UNSET)
+
         trace_controller_list_traces_response_200_data_item = cls(
             trace_id=trace_id,
             event_count=event_count,
@@ -115,6 +150,9 @@ class TraceControllerListTracesResponse200DataItem:
             error_count=error_count,
             tool_call_count=tool_call_count,
             handoff_count=handoff_count,
+            total_tokens=total_tokens,
+            cost_usd=cost_usd,
+            status=status,
         )
 
         trace_controller_list_traces_response_200_data_item.additional_properties = d

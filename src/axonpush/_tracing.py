@@ -11,7 +11,8 @@ The transport layer reads the current context and injects
 
 from __future__ import annotations
 
-import threading
+import hashlib
+import secrets
 import uuid
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
@@ -28,19 +29,31 @@ class TraceContext:
     """
 
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    _span_counter: int = field(default=0, repr=False)
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def next_span_id(self) -> str:
-        """Return a fresh, monotonically-increasing span identifier.
+        """Return a fresh W3C-compatible span identifier.
 
         Returns:
-            A UUID4 string. Each call yields a distinct value; the internal
-            counter is bumped under a lock so concurrent threads stay safe.
+            A non-zero 16-character lowercase hexadecimal string.
         """
-        with self._lock:
-            self._span_counter += 1
-        return str(uuid.uuid4())
+        return secrets.token_hex(8)
+
+    def w3c_trace_id(self) -> str:
+        """Return this context's identifier as a W3C 32-hex trace id."""
+        compact = self.trace_id.replace("-", "").lower()
+        if len(compact) == 32 and compact != "0" * 32:
+            try:
+                int(compact, 16)
+            except ValueError:
+                pass
+            else:
+                return compact
+        return hashlib.sha256(self.trace_id.encode()).hexdigest()[:32]
+
+    def traceparent(self, span_id: str | None = None) -> str:
+        """Build a sampled W3C ``traceparent`` header."""
+        resolved_span_id = span_id or self.next_span_id()
+        return f"00-{self.w3c_trace_id()}-{resolved_span_id}-01"
 
 
 def get_or_create_trace(trace_id: str | None = None) -> TraceContext:

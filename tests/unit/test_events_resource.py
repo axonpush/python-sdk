@@ -84,7 +84,9 @@ class TestPublishBody:
         assert len(body.trace_id) == 36 and body.trace_id.count("-") == 4
         # Optional fields default to UNSET
         assert body.agent_id is UNSET
-        assert body.span_id is UNSET
+        assert isinstance(body.span_id, str)
+        assert len(body.span_id) == 16
+        int(body.span_id, 16)
         assert body.parent_event_id is UNSET
         assert body.metadata is UNSET
         assert body.environment is UNSET
@@ -122,6 +124,25 @@ class TestPublishBody:
         assert body.metadata is not UNSET
         assert body.metadata.additional_properties == {"src": "test"}
 
+    def test_prompt_lineage_uses_current_otel_genai_attributes(self) -> None:
+        fake = FakeSyncClient(return_value=_ingest_response())
+        events = Events(fake)
+        events.publish(
+            "x",
+            {},
+            channel_id=CHANNEL_ID,
+            metadata={"release": "2026.07"},
+            prompt_id="support-answer",
+            prompt_version_id="7",
+        )
+
+        body = fake.calls[0][1]["body"]
+        assert body.metadata.additional_properties == {
+            "release": "2026.07",
+            "gen_ai.prompt.id": "support-answer",
+            "gen_ai.prompt.version": "7",
+        }
+
     def test_all_tracing_fields_propagate(self) -> None:
         fake = FakeSyncClient(return_value=_ingest_response())
         events = Events(fake)
@@ -132,6 +153,7 @@ class TestPublishBody:
             agent_id="bot",
             trace_id="tr_fixed",
             span_id="sp_fixed",
+            parent_span_id="sp_parent",
             parent_event_id="ev_parent",
             environment="staging",
         )
@@ -140,8 +162,43 @@ class TestPublishBody:
         assert body.agent_id == "bot"
         assert body.trace_id == "tr_fixed"
         assert body.span_id == "sp_fixed"
+        assert body.parent_span_id == "sp_parent"
+        assert body.to_dict()["parentSpanId"] == "sp_parent"
         assert body.parent_event_id == "ev_parent"
         assert body.environment == "staging"
+
+    def test_real_client_redacts_payload_before_building_request(self) -> None:
+        from axonpush import AxonPush
+
+        client = AxonPush(
+            api_key="ak_test",
+            tenant_id="org_test",
+            base_url="http://example.test",
+            redact_keys=["customerEmail"],
+        )
+        try:
+            events = Events(client)
+            with pytest.MonkeyPatch.context() as monkeypatch:
+                monkeypatch.setattr(client, "_invoke", lambda *args, **kwargs: kwargs["body"])
+                body = events.publish(
+                    "safe",
+                    {
+                        "input": "private prompt",
+                        "authorization": "Bearer secret",
+                        "customerEmail": "person@example.com",
+                        "label": "safe",
+                    },
+                    channel_id=CHANNEL_ID,
+                )
+            assert isinstance(body, CreateEventDto)
+            assert body.payload.additional_properties == {
+                "input": "[REDACTED]",
+                "authorization": "[REDACTED]",
+                "customerEmail": "[REDACTED]",
+                "label": "safe",
+            }
+        finally:
+            client.close()
 
 
 class TestList:

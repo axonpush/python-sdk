@@ -179,9 +179,7 @@ class AsyncOrganizations:
 
     async def cancel_invitation(self, org_id: str, invitation_id: str) -> SuccessResponseDto | None:
         """See :meth:`Organizations.cancel_invitation`."""
-        return await self._client._invoke(
-            _delete_invite_op, id=org_id, invitation_id=invitation_id
-        )
+        return await self._client._invoke(_delete_invite_op, id=org_id, invitation_id=invitation_id)
 
     async def remove_member(self, org_id: str, user_id: str) -> SuccessResponseDto | None:
         """See :meth:`Organizations.remove_member`."""

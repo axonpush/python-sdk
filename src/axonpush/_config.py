@@ -6,8 +6,12 @@ environment variables (``AXONPUSH_*``). Constructor kwargs override env vars.
 
 from __future__ import annotations
 
-from pydantic import HttpUrl, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Annotated, Literal
+
+from pydantic import Field, HttpUrl, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+ContentCaptureMode = Literal["metadata_only", "redacted", "full"]
 
 
 class Settings(BaseSettings):
@@ -43,6 +47,16 @@ class Settings(BaseSettings):
     timeout: float = 30.0
     max_retries: int = 3
     fail_open: bool = True
+    content_capture_mode: ContentCaptureMode = "metadata_only"
+    redact_keys: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    max_content_length: int = Field(default=4096, ge=1)
+
+    @field_validator("redact_keys", mode="before")
+    @classmethod
+    def _parse_redact_keys(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
 
     model_config = SettingsConfigDict(
         env_prefix="AXONPUSH_",
@@ -52,4 +66,4 @@ class Settings(BaseSettings):
     )
 
 
-__all__ = ["Settings"]
+__all__ = ["ContentCaptureMode", "Settings"]

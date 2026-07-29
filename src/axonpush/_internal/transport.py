@@ -105,7 +105,10 @@ def _auth_headers(settings: Settings) -> dict[str, str]:
 def _inject_request_headers(request: httpx.Request) -> None:
     ctx = current_trace()
     if ctx is not None:
+        span_id = ctx.next_span_id()
         request.headers["X-Axonpush-Trace-Id"] = ctx.trace_id
+        request.headers["X-Axonpush-Span-Id"] = span_id
+        request.headers["traceparent"] = ctx.traceparent(span_id)
     if not request.content:
         request.headers.pop("Content-Type", None)
 

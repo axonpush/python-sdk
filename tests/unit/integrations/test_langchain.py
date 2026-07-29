@@ -92,9 +92,7 @@ class TestSyncHandler:
         assert call["metadata"]["langgraph_step"] == 3
         assert call["metadata"]["tags"] == ["graph:my_graph"]
 
-    def test_llm_start_uses_invocation_params_model(
-        self, fake_sync_client: FakeSyncClient
-    ) -> None:
+    def test_llm_start_uses_invocation_params_model(self, fake_sync_client: FakeSyncClient) -> None:
         # serialized.name is the wrapper class ("ChatOpenAI"); the real model
         # id is in invocation_params (or serialized.kwargs.model). Pre-0.0.13
         # the trace would just show "ChatOpenAI".

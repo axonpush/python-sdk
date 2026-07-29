@@ -21,6 +21,7 @@ class BillingUsageResponseDto:
         plan (str):
         used (float):
         subscription_status (BillingUsageResponseDtoSubscriptionStatus):
+        has_billing_portal (bool): Whether a LemonSqueezy customer portal exists (a real subscription created one)
         limit (float | None | Unset):
         retention_days (float | None | Unset):
         seats (float | None | Unset):
@@ -31,6 +32,7 @@ class BillingUsageResponseDto:
     plan: str
     used: float
     subscription_status: BillingUsageResponseDtoSubscriptionStatus
+    has_billing_portal: bool
     limit: float | None | Unset = UNSET
     retention_days: float | None | Unset = UNSET
     seats: float | None | Unset = UNSET
@@ -44,6 +46,8 @@ class BillingUsageResponseDto:
         used = self.used
 
         subscription_status = self.subscription_status.value
+
+        has_billing_portal = self.has_billing_portal
 
         limit: float | None | Unset
         if isinstance(self.limit, Unset):
@@ -82,6 +86,7 @@ class BillingUsageResponseDto:
                 "plan": plan,
                 "used": used,
                 "subscriptionStatus": subscription_status,
+                "hasBillingPortal": has_billing_portal,
             }
         )
         if limit is not UNSET:
@@ -105,6 +110,8 @@ class BillingUsageResponseDto:
         used = d.pop("used")
 
         subscription_status = BillingUsageResponseDtoSubscriptionStatus(d.pop("subscriptionStatus"))
+
+        has_billing_portal = d.pop("hasBillingPortal")
 
         def _parse_limit(data: object) -> float | None | Unset:
             if data is None:
@@ -155,6 +162,7 @@ class BillingUsageResponseDto:
             plan=plan,
             used=used,
             subscription_status=subscription_status,
+            has_billing_portal=has_billing_portal,
             limit=limit,
             retention_days=retention_days,
             seats=seats,

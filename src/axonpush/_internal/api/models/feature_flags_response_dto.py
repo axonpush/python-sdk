@@ -15,35 +15,35 @@ T = TypeVar("T", bound="FeatureFlagsResponseDto")
 class FeatureFlagsResponseDto:
     """
     Attributes:
-        billing (bool):
         environments (bool):
         sentry_ingest (bool):
         async_ingest (bool):
+        mcp_server (bool):
     """
 
-    billing: bool
     environments: bool
     sentry_ingest: bool
     async_ingest: bool
+    mcp_server: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        billing = self.billing
-
         environments = self.environments
 
         sentry_ingest = self.sentry_ingest
 
         async_ingest = self.async_ingest
 
+        mcp_server = self.mcp_server
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "billing": billing,
                 "environments": environments,
                 "sentryIngest": sentry_ingest,
                 "asyncIngest": async_ingest,
+                "mcpServer": mcp_server,
             }
         )
 
@@ -52,19 +52,19 @@ class FeatureFlagsResponseDto:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        billing = d.pop("billing")
-
         environments = d.pop("environments")
 
         sentry_ingest = d.pop("sentryIngest")
 
         async_ingest = d.pop("asyncIngest")
 
+        mcp_server = d.pop("mcpServer")
+
         feature_flags_response_dto = cls(
-            billing=billing,
             environments=environments,
             sentry_ingest=sentry_ingest,
             async_ingest=async_ingest,
+            mcp_server=mcp_server,
         )
 
         feature_flags_response_dto.additional_properties = d

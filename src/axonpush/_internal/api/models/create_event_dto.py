@@ -27,6 +27,7 @@ class CreateEventDto:
         agent_id (str | Unset):
         trace_id (str | Unset):
         span_id (str | Unset):
+        parent_span_id (str | Unset):
         parent_event_id (str | Unset):
         event_type (CreateEventDtoEventType | Unset):  Default: CreateEventDtoEventType.CUSTOM.
         metadata (CreateEventDtoMetadata | Unset):
@@ -42,6 +43,7 @@ class CreateEventDto:
     agent_id: str | Unset = UNSET
     trace_id: str | Unset = UNSET
     span_id: str | Unset = UNSET
+    parent_span_id: str | Unset = UNSET
     parent_event_id: str | Unset = UNSET
     event_type: CreateEventDtoEventType | Unset = CreateEventDtoEventType.CUSTOM
     metadata: CreateEventDtoMetadata | Unset = UNSET
@@ -64,6 +66,8 @@ class CreateEventDto:
         trace_id = self.trace_id
 
         span_id = self.span_id
+
+        parent_span_id = self.parent_span_id
 
         parent_event_id = self.parent_event_id
 
@@ -94,6 +98,8 @@ class CreateEventDto:
             field_dict["traceId"] = trace_id
         if span_id is not UNSET:
             field_dict["spanId"] = span_id
+        if parent_span_id is not UNSET:
+            field_dict["parentSpanId"] = parent_span_id
         if parent_event_id is not UNSET:
             field_dict["parentEventId"] = parent_event_id
         if event_type is not UNSET:
@@ -125,6 +131,8 @@ class CreateEventDto:
 
         span_id = d.pop("spanId", UNSET)
 
+        parent_span_id = d.pop("parentSpanId", UNSET)
+
         parent_event_id = d.pop("parentEventId", UNSET)
 
         _event_type = d.pop("eventType", UNSET)
@@ -152,6 +160,7 @@ class CreateEventDto:
             agent_id=agent_id,
             trace_id=trace_id,
             span_id=span_id,
+            parent_span_id=parent_span_id,
             parent_event_id=parent_event_id,
             event_type=event_type,
             metadata=metadata,

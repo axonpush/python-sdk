@@ -44,6 +44,9 @@ class TestSyncFacadeConstruction:
             "AXONPUSH_TIMEOUT",
             "AXONPUSH_MAX_RETRIES",
             "AXONPUSH_FAIL_OPEN",
+            "AXONPUSH_CONTENT_CAPTURE_MODE",
+            "AXONPUSH_REDACT_KEYS",
+            "AXONPUSH_MAX_CONTENT_LENGTH",
         ):
             monkeypatch.delenv(k, raising=False)
         monkeypatch.setenv("AXONPUSH_API_KEY", "env_key")
@@ -194,7 +197,33 @@ class TestSettingsModel:
         assert s.timeout == 30.0
         assert s.max_retries == 3
         assert s.fail_open is True
+        assert s.content_capture_mode == "metadata_only"
+        assert s.redact_keys == []
+        assert s.max_content_length == 4096
         assert str(s.base_url).rstrip("/") == "http://localhost:3000"
+
+    def test_capture_policy_environment_and_redaction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("AXONPUSH_CONTENT_CAPTURE_MODE", "redacted")
+        monkeypatch.setenv("AXONPUSH_REDACT_KEYS", "customerEmail, account_id")
+        monkeypatch.setenv("AXONPUSH_MAX_CONTENT_LENGTH", "5")
+        client = AxonPush()
+        try:
+            assert client.settings.redact_keys == ["customerEmail", "account_id"]
+            assert client._redact_telemetry(
+                {
+                    "input": "abcdef",
+                    "customerEmail": "person@example.com",
+                    "password": "secret",
+                }
+            ) == {
+                "input": "abcde…[TRUNCATED]",
+                "customerEmail": "[REDACTED]",
+                "password": "[REDACTED]",
+            }
+        finally:
+            client.close()
 
 
 class TestAsyncFacade:

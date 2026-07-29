@@ -12,6 +12,7 @@ from ...types import UNSET, Response, Unset
 
 def _get_kwargs(
     *,
+    query: str | Unset = UNSET,
     source: str | Unset = UNSET,
     payload_filter: str | Unset = UNSET,
     limit: float | Unset = UNSET,
@@ -27,6 +28,8 @@ def _get_kwargs(
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
+
+    params["query"] = query
 
     params["source"] = source
 
@@ -95,6 +98,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
+    query: str | Unset = UNSET,
     source: str | Unset = UNSET,
     payload_filter: str | Unset = UNSET,
     limit: float | Unset = UNSET,
@@ -110,6 +114,7 @@ def sync_detailed(
 ) -> Response[EventListResponseDto]:
     """
     Args:
+        query (str | Unset):
         source (str | Unset):
         payload_filter (str | Unset):
         limit (float | Unset):
@@ -132,6 +137,7 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
+        query=query,
         source=source,
         payload_filter=payload_filter,
         limit=limit,
@@ -156,6 +162,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
+    query: str | Unset = UNSET,
     source: str | Unset = UNSET,
     payload_filter: str | Unset = UNSET,
     limit: float | Unset = UNSET,
@@ -171,6 +178,7 @@ def sync(
 ) -> EventListResponseDto | None:
     """
     Args:
+        query (str | Unset):
         source (str | Unset):
         payload_filter (str | Unset):
         limit (float | Unset):
@@ -194,6 +202,7 @@ def sync(
 
     return sync_detailed(
         client=client,
+        query=query,
         source=source,
         payload_filter=payload_filter,
         limit=limit,
@@ -212,6 +221,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
+    query: str | Unset = UNSET,
     source: str | Unset = UNSET,
     payload_filter: str | Unset = UNSET,
     limit: float | Unset = UNSET,
@@ -227,6 +237,7 @@ async def asyncio_detailed(
 ) -> Response[EventListResponseDto]:
     """
     Args:
+        query (str | Unset):
         source (str | Unset):
         payload_filter (str | Unset):
         limit (float | Unset):
@@ -249,6 +260,7 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
+        query=query,
         source=source,
         payload_filter=payload_filter,
         limit=limit,
@@ -271,6 +283,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
+    query: str | Unset = UNSET,
     source: str | Unset = UNSET,
     payload_filter: str | Unset = UNSET,
     limit: float | Unset = UNSET,
@@ -286,6 +299,7 @@ async def asyncio(
 ) -> EventListResponseDto | None:
     """
     Args:
+        query (str | Unset):
         source (str | Unset):
         payload_filter (str | Unset):
         limit (float | Unset):
@@ -310,6 +324,7 @@ async def asyncio(
     return (
         await asyncio_detailed(
             client=client,
+            query=query,
             source=source,
             payload_filter=payload_filter,
             limit=limit,
