@@ -48,9 +48,7 @@ class Channels:
         Returns:
             The created :class:`Channel`, or ``None`` on fail-open.
         """
-        return self._client._invoke(
-            _create_op, body=_build_create_dto(name=name, app_id=app_id)
-        )
+        return self._client._invoke(_create_op, body=_build_create_dto(name=name, app_id=app_id))
 
     def update(self, channel_id: str) -> OkResponseDto | None:
         """Touch / re-validate a channel.

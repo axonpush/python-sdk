@@ -24,6 +24,7 @@ class UserResponseDto:
         google_id (None | str):
         roles (list[UserResponseDtoRolesItem]):
         organization_id (None | str):
+        is_super_admin (bool): Whether this account has product-wide superadmin (admin panel) access
         deleted_at (None | str | Unset):
     """
 
@@ -35,6 +36,7 @@ class UserResponseDto:
     google_id: None | str
     roles: list[UserResponseDtoRolesItem]
     organization_id: None | str
+    is_super_admin: bool
     deleted_at: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -60,6 +62,8 @@ class UserResponseDto:
         organization_id: None | str
         organization_id = self.organization_id
 
+        is_super_admin = self.is_super_admin
+
         deleted_at: None | str | Unset
         if isinstance(self.deleted_at, Unset):
             deleted_at = UNSET
@@ -78,6 +82,7 @@ class UserResponseDto:
                 "googleId": google_id,
                 "roles": roles,
                 "organizationId": organization_id,
+                "isSuperAdmin": is_super_admin,
             }
         )
         if deleted_at is not UNSET:
@@ -119,6 +124,8 @@ class UserResponseDto:
 
         organization_id = _parse_organization_id(d.pop("organizationId"))
 
+        is_super_admin = d.pop("isSuperAdmin")
+
         def _parse_deleted_at(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -137,6 +144,7 @@ class UserResponseDto:
             google_id=google_id,
             roles=roles,
             organization_id=organization_id,
+            is_super_admin=is_super_admin,
             deleted_at=deleted_at,
         )
 

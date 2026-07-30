@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Sequence
 
 from axonpush._internal.api.api.event import (
@@ -48,35 +49,55 @@ def _build_create_dto(
     agent_id: str | None,
     trace_id: str | None,
     span_id: str | None,
+    parent_span_id: str | None,
     parent_event_id: str | None,
     event_type: EventType | str | None,
     metadata: dict[str, Any] | None,
+    prompt_id: str | None,
+    prompt_version_id: str | None,
     environment: str | None,
+    redact: Callable[[Any], Any] | None = None,
 ) -> CreateEventDto:
     """Assemble the generated DTO with ``UNSET`` for omitted optionals."""
-    resolved_trace = trace_id if trace_id is not None else get_or_create_trace().trace_id
+    trace = get_or_create_trace(trace_id)
+    resolved_trace = trace.trace_id
+    resolved_span = span_id if span_id is not None else trace.next_span_id()
 
     payload_dto = CreateEventDtoPayload()
-    payload_dto.additional_properties = dict(payload)
+    payload_dto.additional_properties = dict(redact(payload) if redact is not None else payload)
 
     metadata_dto: CreateEventDtoMetadata | Unset = UNSET
-    if metadata is not None:
+    canonical_metadata = dict(metadata or {})
+    if prompt_id is not None:
+        canonical_metadata["gen_ai.prompt.id"] = prompt_id
+    if prompt_version_id is not None:
+        canonical_metadata["gen_ai.prompt.version"] = prompt_version_id
+    if canonical_metadata:
         md = CreateEventDtoMetadata()
-        md.additional_properties = dict(metadata)
+        md.additional_properties = dict(
+            redact(canonical_metadata) if redact is not None else canonical_metadata
+        )
         metadata_dto = md
 
-    return CreateEventDto(
+    dto = CreateEventDto(
         identifier=identifier,
         payload=payload_dto,
         channel_id=channel_id,
         agent_id=agent_id if agent_id is not None else UNSET,
         trace_id=resolved_trace,
-        span_id=span_id if span_id is not None else UNSET,
+        span_id=resolved_span,
+        parent_span_id=parent_span_id if parent_span_id is not None else UNSET,
         parent_event_id=parent_event_id if parent_event_id is not None else UNSET,
         event_type=_coerce_event_type(event_type),
         metadata=metadata_dto,
         environment=environment if environment is not None else UNSET,
     )
+    return dto
+
+
+def _client_redactor(client: object) -> Callable[[Any], Any] | None:
+    redactor = getattr(client, "_redact_telemetry", None)
+    return redactor if callable(redactor) else None
 
 
 class Events:
@@ -94,9 +115,12 @@ class Events:
         agent_id: str | None = None,
         trace_id: str | None = None,
         span_id: str | None = None,
+        parent_span_id: str | None = None,
         parent_event_id: str | None = None,
         event_type: EventType | str | None = None,
         metadata: dict[str, Any] | None = None,
+        prompt_id: str | None = None,
+        prompt_version_id: str | None = None,
         environment: str | None = None,
     ) -> Event | None:
         """Publish a single event to a channel.
@@ -111,6 +135,8 @@ class Events:
             parent_event_id: Optional parent event UUID.
             event_type: Enum or string. Defaults to ``custom`` server-side.
             metadata: Free-form metadata map.
+            prompt_id: Optional immutable prompt registry identifier.
+            prompt_version_id: Optional prompt version used for trace attribution.
             environment: Per-call override of the client-level environment.
 
         Returns:
@@ -127,10 +153,14 @@ class Events:
             agent_id=agent_id,
             trace_id=trace_id,
             span_id=span_id,
+            parent_span_id=parent_span_id,
             parent_event_id=parent_event_id,
             event_type=event_type,
             metadata=metadata,
+            prompt_id=prompt_id,
+            prompt_version_id=prompt_version_id,
             environment=environment,
+            redact=_client_redactor(self._client),
         )
         return self._client._invoke(_create_op, body=body)
 
@@ -197,6 +227,7 @@ class Events:
         limit: int | None = None,
         payload_filter: str | None = None,
         source: str | None = None,
+        query: str | None = None,
     ) -> EventListResponseDto | None:
         """Search events across an organization via ``GET /events/search``.
 
@@ -215,6 +246,7 @@ class Events:
             limit: Page size (1-1000, default 100).
             payload_filter: JSON-path / dotted filter against the event payload.
             source: Filter by ingest source (``app``, ``sentry``, ``otlp``).
+            query: Case-insensitive free-text match over event fields and retained payload.
 
         Returns:
             An :class:`EventListResponseDto` or ``None`` on fail-open.
@@ -233,6 +265,7 @@ class Events:
                 "limit": limit,
                 "payload_filter": payload_filter,
                 "source": source,
+                "query": query,
             }
         )
         return self._client._invoke(_search_op, **kwargs)
@@ -253,9 +286,12 @@ class AsyncEvents:
         agent_id: str | None = None,
         trace_id: str | None = None,
         span_id: str | None = None,
+        parent_span_id: str | None = None,
         parent_event_id: str | None = None,
         event_type: EventType | str | None = None,
         metadata: dict[str, Any] | None = None,
+        prompt_id: str | None = None,
+        prompt_version_id: str | None = None,
         environment: str | None = None,
     ) -> Event | None:
         """Publish a single event to a channel. See :meth:`Events.publish`."""
@@ -266,10 +302,14 @@ class AsyncEvents:
             agent_id=agent_id,
             trace_id=trace_id,
             span_id=span_id,
+            parent_span_id=parent_span_id,
             parent_event_id=parent_event_id,
             event_type=event_type,
             metadata=metadata,
+            prompt_id=prompt_id,
+            prompt_version_id=prompt_version_id,
             environment=environment,
+            redact=_client_redactor(self._client),
         )
         return await self._client._invoke(_create_op, body=body)
 
@@ -319,6 +359,7 @@ class AsyncEvents:
         limit: int | None = None,
         payload_filter: str | None = None,
         source: str | None = None,
+        query: str | None = None,
     ) -> EventListResponseDto | None:
         """Search events. See :meth:`Events.search`."""
         kwargs = _filter_kwargs(
@@ -335,6 +376,7 @@ class AsyncEvents:
                 "limit": limit,
                 "payload_filter": payload_filter,
                 "source": source,
+                "query": query,
             }
         )
         return await self._client._invoke(_search_op, **kwargs)

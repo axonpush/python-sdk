@@ -63,9 +63,7 @@ class Traces:
         environment: str | None = None,
     ) -> TraceStats | None:
         """Dashboard stats — totals, error rate, events-by-hour buckets."""
-        return self._client._invoke(
-            _stats_op, app_id=_opt(app_id), environment=_opt(environment)
-        )
+        return self._client._invoke(_stats_op, app_id=_opt(app_id), environment=_opt(environment))
 
     def events(
         self,

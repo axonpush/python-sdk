@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, BinaryIO, Generator, TextIO, TypeVar, cas
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.api_key_response_dto_purpose import ApiKeyResponseDtoPurpose
 from ..models.api_key_response_dto_scopes_item import ApiKeyResponseDtoScopesItem
 from ..types import UNSET, Unset
 
@@ -16,38 +17,32 @@ T = TypeVar("T", bound="ApiKeyResponseDto")
 class ApiKeyResponseDto:
     """
     Attributes:
-        api_key_id (str):
-        org_id (str):
+        id (str):
         name (str):
         scopes (list[ApiKeyResponseDtoScopesItem]):
         allow_environment_override (bool):
         created_at (str):
         app_id (str | Unset):
         environment_id (str | Unset):
+        purpose (ApiKeyResponseDtoPurpose | Unset):
         prefix (str | Unset):
         last_used_at (str | Unset):
-        updated_at (str | Unset):
-        revoked_at (str | Unset):
     """
 
-    api_key_id: str
-    org_id: str
+    id: str
     name: str
     scopes: list[ApiKeyResponseDtoScopesItem]
     allow_environment_override: bool
     created_at: str
     app_id: str | Unset = UNSET
     environment_id: str | Unset = UNSET
+    purpose: ApiKeyResponseDtoPurpose | Unset = UNSET
     prefix: str | Unset = UNSET
     last_used_at: str | Unset = UNSET
-    updated_at: str | Unset = UNSET
-    revoked_at: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        api_key_id = self.api_key_id
-
-        org_id = self.org_id
+        id = self.id
 
         name = self.name
 
@@ -64,20 +59,19 @@ class ApiKeyResponseDto:
 
         environment_id = self.environment_id
 
+        purpose: str | Unset = UNSET
+        if not isinstance(self.purpose, Unset):
+            purpose = self.purpose.value
+
         prefix = self.prefix
 
         last_used_at = self.last_used_at
-
-        updated_at = self.updated_at
-
-        revoked_at = self.revoked_at
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "apiKeyId": api_key_id,
-                "orgId": org_id,
+                "id": id,
                 "name": name,
                 "scopes": scopes,
                 "allowEnvironmentOverride": allow_environment_override,
@@ -88,23 +82,19 @@ class ApiKeyResponseDto:
             field_dict["appId"] = app_id
         if environment_id is not UNSET:
             field_dict["environmentId"] = environment_id
+        if purpose is not UNSET:
+            field_dict["purpose"] = purpose
         if prefix is not UNSET:
             field_dict["prefix"] = prefix
         if last_used_at is not UNSET:
             field_dict["lastUsedAt"] = last_used_at
-        if updated_at is not UNSET:
-            field_dict["updatedAt"] = updated_at
-        if revoked_at is not UNSET:
-            field_dict["revokedAt"] = revoked_at
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        api_key_id = d.pop("apiKeyId")
-
-        org_id = d.pop("orgId")
+        id = d.pop("id")
 
         name = d.pop("name")
 
@@ -123,27 +113,28 @@ class ApiKeyResponseDto:
 
         environment_id = d.pop("environmentId", UNSET)
 
+        _purpose = d.pop("purpose", UNSET)
+        purpose: ApiKeyResponseDtoPurpose | Unset
+        if isinstance(_purpose, Unset):
+            purpose = UNSET
+        else:
+            purpose = ApiKeyResponseDtoPurpose(_purpose)
+
         prefix = d.pop("prefix", UNSET)
 
         last_used_at = d.pop("lastUsedAt", UNSET)
 
-        updated_at = d.pop("updatedAt", UNSET)
-
-        revoked_at = d.pop("revokedAt", UNSET)
-
         api_key_response_dto = cls(
-            api_key_id=api_key_id,
-            org_id=org_id,
+            id=id,
             name=name,
             scopes=scopes,
             allow_environment_override=allow_environment_override,
             created_at=created_at,
             app_id=app_id,
             environment_id=environment_id,
+            purpose=purpose,
             prefix=prefix,
             last_used_at=last_used_at,
-            updated_at=updated_at,
-            revoked_at=revoked_at,
         )
 
         api_key_response_dto.additional_properties = d

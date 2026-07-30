@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 from pydantic import HttpUrl, SecretStr
 
-from axonpush._config import Settings
+from axonpush._config import ContentCaptureMode, Settings
 from axonpush._internal.transport import (
     build_async_client,
     build_sync_client,
@@ -30,6 +30,7 @@ from axonpush._internal.transport import (
     call_with_retries_sync,
 )
 from axonpush.exceptions import APIConnectionError
+from axonpush._redaction import redact_telemetry
 
 if TYPE_CHECKING:
     from axonpush._internal.api.client import AuthenticatedClient
@@ -46,6 +47,9 @@ def _build_settings(
     timeout: float | None,
     max_retries: int | None,
     fail_open: bool | None,
+    content_capture_mode: ContentCaptureMode | None,
+    redact_keys: list[str] | None,
+    max_content_length: int | None,
 ) -> Settings:
     base = Settings()
     overrides: dict[str, Any] = {}
@@ -65,6 +69,12 @@ def _build_settings(
         overrides["max_retries"] = max_retries
     if fail_open is not None:
         overrides["fail_open"] = fail_open
+    if content_capture_mode is not None:
+        overrides["content_capture_mode"] = content_capture_mode
+    if redact_keys is not None:
+        overrides["redact_keys"] = redact_keys
+    if max_content_length is not None:
+        overrides["max_content_length"] = max_content_length
     if not overrides:
         return base
     return base.model_copy(update=overrides)
@@ -106,6 +116,9 @@ class AxonPush:
         timeout: float | None = None,
         max_retries: int | None = None,
         fail_open: bool | None = None,
+        content_capture_mode: ContentCaptureMode | None = None,
+        redact_keys: list[str] | None = None,
+        max_content_length: int | None = None,
     ) -> None:
         self._settings = _build_settings(
             api_key=api_key,
@@ -115,6 +128,9 @@ class AxonPush:
             timeout=timeout,
             max_retries=max_retries,
             fail_open=fail_open,
+            content_capture_mode=content_capture_mode,
+            redact_keys=redact_keys,
+            max_content_length=max_content_length,
         )
         self._client: AuthenticatedClient = build_sync_client(self._settings)
         self._closed = False
@@ -138,6 +154,10 @@ class AxonPush:
     def http(self) -> "AuthenticatedClient":
         """The underlying generated HTTP client (for resource modules)."""
         return self._client
+
+    def _redact_telemetry(self, value: Any) -> Any:
+        """Apply the configured client-side telemetry policy."""
+        return redact_telemetry(value, self._settings)
 
     def _invoke(
         self,
@@ -272,6 +292,9 @@ class AsyncAxonPush:
         timeout: float | None = None,
         max_retries: int | None = None,
         fail_open: bool | None = None,
+        content_capture_mode: ContentCaptureMode | None = None,
+        redact_keys: list[str] | None = None,
+        max_content_length: int | None = None,
     ) -> None:
         self._settings = _build_settings(
             api_key=api_key,
@@ -281,6 +304,9 @@ class AsyncAxonPush:
             timeout=timeout,
             max_retries=max_retries,
             fail_open=fail_open,
+            content_capture_mode=content_capture_mode,
+            redact_keys=redact_keys,
+            max_content_length=max_content_length,
         )
         self._client: AuthenticatedClient | None = None
         # Reference to the asyncio loop the cached _client is bound to. We
@@ -338,6 +364,10 @@ class AsyncAxonPush:
     def http(self) -> "AuthenticatedClient":
         """The underlying generated HTTP client (for resource modules)."""
         return self._get_client()
+
+    def _redact_telemetry(self, value: Any) -> Any:
+        """Apply the configured client-side telemetry policy."""
+        return redact_telemetry(value, self._settings)
 
     async def _invoke(
         self,
