@@ -1,6 +1,6 @@
-# AxonPush Use Case Guides
+# axonpush Use Case Guides
 
-Scenario-driven guides for building with AxonPush. Each takes under 2 minutes to read and includes copy-pasteable code.
+Scenario-driven guides for building with axonpush. Each takes under 2 minutes to read and includes copy-pasteable code.
 
 ## Prerequisites
 
@@ -8,7 +8,7 @@ Scenario-driven guides for building with AxonPush. Each takes under 2 minutes to
 pip install axonpush
 ```
 
-You need an AxonPush API key and tenant ID. Get them from the [AxonPush dashboard](https://axonpush.xyz).
+You need an axonpush API key and tenant ID. Get them from the [axonpush dashboard](https://axonpush.xyz).
 
 ## Guides
 
@@ -22,6 +22,6 @@ You need an AxonPush API key and tenant ID. Get them from the [AxonPush dashboar
 | 6 | [Agent-to-agent communication](06-agent-to-agent-websockets.md) | Advanced | Bidirectional real-time pub/sub with WebSockets |
 | 7 | [Production error handling](07-production-error-handling.md) | Advanced | Graceful failures, retries, and rate limits |
 
-Start with Guide 1 if you're new to AxonPush. Jump to Guide 2 if you already use LangChain, OpenAI Agents, Claude, or CrewAI.
+Start with Guide 1 if you're new to axonpush. Jump to Guide 2 if you already use LangChain, OpenAI Agents, Claude, or CrewAI.
 
 Looking for the full API reference? See the [README](../../README.md) for the resource table and method signatures.

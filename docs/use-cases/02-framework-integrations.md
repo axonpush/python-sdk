@@ -80,7 +80,7 @@ callbacks.on_crew_end(result)
 
 ## What Just Happened
 
-- Each integration maps framework-specific lifecycle events to AxonPush event types automatically.
+- Each integration maps framework-specific lifecycle events to axonpush event types automatically.
 - **LangChain** publishes `chain.start`, `chain.end`, `llm.start`, `llm.end`, `tool.<name>.start`, `tool.end`, and error events via the callback protocol.
 - **OpenAI Agents** publishes `agent.run.start`, `agent.run.end`, `tool.<name>.start`, `tool.<name>.end`, and `agent.handoff` events via run hooks.
 - **Anthropic** wraps `messages.create()` to emit `conversation.turn`, `tool.<name>.start`, `agent.response`, and `tool.result` events.
