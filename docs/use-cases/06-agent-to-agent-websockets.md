@@ -37,7 +37,7 @@ ws.wait()
 
 ## What Just Happened
 
-- `connect_websocket()` opens a Socket.IO connection to AxonPush. It handles authentication automatically.
+- `connect_websocket()` opens a Socket.IO connection to axonpush. It handles authentication automatically.
 - `on_event()` registers a callback that fires for every event matching your subscriptions.
 - `subscribe(channel_id=1)` tells the server to push channel 1 events to this connection.
 - `publish()` sends an event over the same WebSocket — no separate HTTP call needed.

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the AxonPush Python SDK are documented here. The
+All notable changes to the axonpush Python SDK are documented here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
@@ -70,7 +70,7 @@ LangChain provides on its callbacks, leaving every event labeled
   ``on_llm_start`` now propagates ``langgraph_node``, ``langgraph_step``,
   ``langgraph_triggers``, ``thread_id``, ``run_type``, and ``tags`` from
   LangChain's callback ``**kwargs`` into the event ``metadata`` block, so
-  the AxonPush UI can group/filter by graph node and tag without needing
+  the axonpush UI can group/filter by graph node and tag without needing
   the user to wire a custom ``metadata=`` argument at handler construction.
 - New helpers ``derive_runnable_name``, ``derive_model_name``, and
   ``extract_run_metadata`` in ``axonpush.integrations._utils`` (internal —
@@ -307,7 +307,7 @@ topic to include an env slot.
 
 ## [0.1.0] – 2026-04-29
 
-**Breaking**: this release pairs with the AxonPush AWS-serverless rewrite
+**Breaking**: this release pairs with the axonpush AWS-serverless rewrite
 of the backend. Realtime moves from Socket.IO to AWS IoT Core MQTT-over-WSS;
 SSE is removed; event search drops Lucene strings in favor of typed query
 parameters.
@@ -353,11 +353,11 @@ parameters.
 > Stale local version bump that never reached PyPI. Its content is
 > rolled into the actual `0.0.10` release at the top of this file.
 
-This release pairs with a server-side change: AxonPush now keys
+This release pairs with a server-side change: axonpush now keys
 retry-idempotency on a server-generated `dedup_key` UUID per record
 instead of the user-facing `identifier`. Distinct logical events that
 share an `identifier` (e.g. many log records on the same logger name)
-all persist as separate rows. Requires AxonPush server with the
+all persist as separate rows. Requires axonpush server with the
 `AddEventDedupKeyAndSwapIndex` migration applied; older servers will
 silently dedupe by `identifier`, same as before.
 
@@ -381,7 +381,7 @@ silently dedupe by `identifier`, same as before.
   observability integrations keeps working untouched.
 - If you were working around the silent dedup-by-`identifier` bug with
   per-record unique suffixes (e.g. `f"{record.name}.{ts}.{seq}"`), you
-  can drop that workaround once your AxonPush server is on the
+  can drop that workaround once your axonpush server is on the
   matching release. The plain `record.name` flows through and each
   record persists.
 

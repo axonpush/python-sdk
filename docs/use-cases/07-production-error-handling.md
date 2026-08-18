@@ -30,15 +30,15 @@ with AxonPush(api_key="ak_...", tenant_id="1") as client:
     except AuthenticationError:
         print("Invalid API key — check your credentials")
     except ServerError:
-        print("AxonPush is temporarily unavailable — fall back to local logging")
+        print("axonpush is temporarily unavailable — fall back to local logging")
 ```
 
 ## What Just Happened
 
-- AxonPush raises typed exceptions mapped to HTTP status codes. You catch specific errors, not generic ones.
+- axonpush raises typed exceptions mapped to HTTP status codes. You catch specific errors, not generic ones.
 - `RateLimitError` (429) includes `retry_after` — the number of seconds to wait before retrying.
 - `AuthenticationError` (401) means your API key is invalid or expired.
-- `ServerError` (5xx) means AxonPush itself is having issues. Your agent can fall back gracefully.
+- `ServerError` (5xx) means axonpush itself is having issues. Your agent can fall back gracefully.
 - The `with` block ensures the HTTP client is closed cleanly, even if an exception is raised.
 
 <details>
@@ -122,7 +122,7 @@ trace = get_or_create_trace()
 try:
     result = call_external_tool()
 except Exception as e:
-    # Record the failure in AxonPush before handling it
+    # Record the failure in axonpush before handling it
     try:
         client.events.publish(
             "tool_failure",

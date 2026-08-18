@@ -35,9 +35,9 @@ with AxonPush(api_key="ak_...", tenant_id="1") as client:
 
 ## What Just Happened
 
-- `create_endpoint()` registers a URL that AxonPush will POST to whenever a matching event is published on the channel.
+- `create_endpoint()` registers a URL that axonpush will POST to whenever a matching event is published on the channel.
 - `event_types=["agent.error"]` filters the webhook to only fire on error events. Without this, it fires on every event.
-- The `secret` enables HMAC signature verification so your server can validate that the request came from AxonPush.
+- The `secret` enables HMAC signature verification so your server can validate that the request came from axonpush.
 - `get_deliveries()` returns delivery attempts with status (`pending`, `success`, `failed`, `retrying`), HTTP status code, and any error message.
 - Failed deliveries are retried automatically.
 

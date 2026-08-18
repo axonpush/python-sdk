@@ -1,12 +1,12 @@
-# AxonPush Python SDK examples
+# axonpush Python SDK examples
 
-Runnable recipes that demonstrate the AxonPush Python SDK at v0.0.10.
+Runnable recipes that demonstrate the axonpush Python SDK at v0.0.10.
 
 ## Prerequisites
 
 - Python 3.10+
 - [uv](https://docs.astral.sh/uv/) installed
-- A running AxonPush backend (default: `http://localhost:3000`)
+- A running axonpush backend (default: `http://localhost:3000`)
 - An API key and tenant (organisation) UUID
 
 ## Setup
@@ -51,7 +51,7 @@ export AXONPUSH_CHANNEL_ID=…      # reuse an existing channel
 | 10 | `10_stdlib_logging.py` | `AxonPushLoggingHandler` ships stdlib `logging` records as OTel-shaped `app.log` events. Includes a Django dictConfig snippet at the bottom. |
 | 11 | `11_loguru.py` | `create_axonpush_loguru_sink` — Loguru sink with `serialize=True`. Needs `--extra loguru`. |
 | 12 | `12_structlog.py` | `axonpush_structlog_processor` — non-destructive processor for structlog. Needs `--extra structlog`. |
-| 13 | `13_print_capture.py` | `setup_print_capture` tees `sys.stdout` / `sys.stderr` into AxonPush as `agent.log` events. |
+| 13 | `13_print_capture.py` | `setup_print_capture` tees `sys.stdout` / `sys.stderr` into axonpush as `agent.log` events. |
 | 14 | `14_otel.py` | `AxonPushSpanExporter` plugged into a `TracerProvider`. Needs `--extra otel`. |
 
 ## Configuration

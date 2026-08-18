@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/axonpush.svg)](https://pypi.org/project/axonpush/)
 
-Python SDK for [AxonPush](https://axonpush.xyz) — real-time event infrastructure for AI agent systems.
+Python SDK for [axonpush](https://axonpush.xyz) — real-time event infrastructure for AI agent systems.
 
 Publish, subscribe, trace, and deliver agent events with sub-100ms latency. Drop-in integrations for LangChain, LangGraph Deep Agents, OpenAI Agents SDK, Anthropic, CrewAI, and the Python observability stack (stdlib `logging`, Loguru, structlog, OpenTelemetry, Sentry).
 
@@ -83,7 +83,7 @@ AxonPush(
 )
 ```
 
-`fail_open=True` swallows `APIConnectionError` and returns `None` from every resource call — useful when AxonPush observability must never break the host application.
+`fail_open=True` swallows `APIConnectionError` and returns `None` from every resource call — useful when axonpush observability must never break the host application.
 
 ## Realtime (MQTT-over-WSS)
 
